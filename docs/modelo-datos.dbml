@@ -1,0 +1,415 @@
+// Generado por app.scripts.exportar_dbml a partir de los modelos: no editar a mano.
+// Pegar en https://dbdiagram.io (Create your diagram).
+
+Project netdoc_umag {
+  database_type: 'PostgreSQL'
+  Note: 'NetDoc UMAG: documentación de la infraestructura de red de la Universidad de Magallanes. En desarrollo corre sobre SQLite; los enums se guardan como VARCHAR + CHECK.'
+}
+
+Table edificio [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  codigo varchar(8) [not null, unique]
+  nombre varchar(200) [not null]
+  campus varchar(120) [default: 'Punta Arenas']
+  direccion varchar(200)
+  observaciones text
+  activo boolean [not null, default: true]
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  Note: 'Catálogo de edificios (SOP sección 8.2).'
+}
+
+Table piso [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  edificio_id integer [not null]
+  codigo varchar(4) [not null]
+  nombre varchar(120)
+  orden integer [not null, default: 0]
+
+  indexes {
+    (edificio_id, codigo) [unique, name: 'uq_piso_edificio_codigo']
+    edificio_id [name: 'ix_piso_edificio_id']
+  }
+
+  Note: 'Piso de un edificio. Código P00, P01…, PXX (SOP sección 8.3).'
+}
+
+Table tramo [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  piso_id integer [not null]
+  codigo varchar(6) [not null]
+  nombre varchar(120)
+
+  indexes {
+    (piso_id, codigo) [unique, name: 'uq_tramo_piso_codigo']
+    piso_id [name: 'ix_tramo_piso_id']
+  }
+
+  Note: 'Subdivisión horizontal del piso (T1, T2…), usada en el código CADI.'
+}
+
+Table plano [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  piso_id integer [not null]
+  tramo_id integer
+  nombre varchar(160) [not null]
+  archivo varchar(300) [not null]
+  formato varchar(10)
+  ancho_px integer [not null]
+  alto_px integer [not null]
+  version varchar(40)
+  vigente boolean [not null, default: true]
+  notas text
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    piso_id [name: 'ix_plano_piso_id']
+    tramo_id [name: 'ix_plano_tramo_id']
+  }
+
+  Note: 'Imagen base del piso sobre la que se posicionan los elementos.'
+}
+
+Table persona [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  nombre varchar(120) [not null]
+  email varchar(160) [unique]
+  unidad varchar(120)
+  rol varchar(120)
+  activo boolean [not null, default: true]
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  Note: 'Responsable de un elemento o de un levantamiento (SOP sección 4).'
+}
+
+Table levantamiento [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  edificio_id integer [not null]
+  fecha_inicio date [not null]
+  fecha_cierre date
+  responsable_id integer
+  estado estado_levantamiento [not null, default: 'en_curso']
+  observaciones text
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    edificio_id [name: 'ix_levantamiento_edificio_id']
+  }
+
+  Note: 'Bitácora de levantamiento por edificio (SOP sección 10.5 punto 24).'
+}
+
+Table tipo_elemento [headercolor: #7c3aed] {
+  id integer [pk, increment]
+  codigo varchar(8) [not null, unique]
+  nombre varchar(120) [not null]
+  categoria categoria_elemento [not null]
+  descripcion text
+  icono varchar(40)
+  color varchar(9)
+  es_contenedor boolean [not null, default: false]
+  usa_correlativo boolean [not null, default: true]
+  orden integer [not null, default: 0]
+  activo boolean [not null, default: true]
+
+  Note: 'Un tipo de la taxonomía (SOP secciones 7.2 y 8.4).'
+}
+
+Table definicion_atributo [headercolor: #7c3aed] {
+  id integer [pk, increment]
+  tipo_elemento_id integer [not null]
+  clave varchar(60) [not null]
+  etiqueta varchar(160) [not null]
+  tipo_dato tipo_dato [not null]
+  obligatorio boolean [not null, default: false]
+  opciones jsonb
+  unidad varchar(20)
+  ayuda text
+  orden integer [not null, default: 0]
+
+  indexes {
+    (tipo_elemento_id, clave) [unique, name: 'uq_definicion_atributo_tipo_clave']
+    tipo_elemento_id [name: 'ix_definicion_atributo_tipo_elemento_id']
+  }
+
+  Note: 'Un campo de la ficha de un tipo (SOP sección 9.2).'
+}
+
+Table elemento [headercolor: #0f9d58] {
+  id integer [pk, increment]
+  codigo varchar(80) [not null, unique]
+  correlativo integer
+  etiqueta varchar(160)
+  tipo_elemento_id integer [not null]
+  edificio_id integer [not null]
+  piso_id integer [not null]
+  tramo_id integer
+  tramo_lamina_id integer
+  ubicacion_descriptiva varchar(200)
+  padre_id integer
+  unidad_rack integer
+  plano_id integer
+  pos_x float
+  pos_y float
+  estado_operativo estado_operativo [not null, default: 'activo']
+  estado_condicion estado_condicion
+  criticidad criticidad
+  marca varchar(80)
+  modelo varchar(120)
+  numero_serie varchar(120)
+  direccion_mac varchar(17)
+  direccion_ip varchar(45)
+  fecha_instalacion date
+  fecha_ultimo_levantamiento date
+  responsable_id integer
+  observaciones text
+  atributos jsonb [not null]
+  activo boolean [not null, default: true]
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    direccion_ip [name: 'ix_elemento_direccion_ip']
+    edificio_id [name: 'ix_elemento_edificio_id']
+    padre_id [name: 'ix_elemento_padre_id']
+    piso_id [name: 'ix_elemento_piso_id']
+    tipo_elemento_id [name: 'ix_elemento_tipo_elemento_id']
+    (tipo_elemento_id, estado_operativo) [name: 'ix_elemento_tipo_estado']
+    (edificio_id, piso_id, tramo_id) [name: 'ix_elemento_ubicacion']
+  }
+
+  Note: 'Unidad mínima documentada.'
+}
+
+Table fotografia [headercolor: #0f9d58] {
+  id integer [pk, increment]
+  elemento_id integer [not null]
+  archivo varchar(300) [not null]
+  descripcion varchar(300)
+  tomada_en timestamptz
+  subida_en timestamptz [not null, default: `now()`]
+  orden integer [not null, default: 0]
+
+  indexes {
+    elemento_id [name: 'ix_fotografia_elemento_id']
+  }
+
+  Note: 'Registro fotográfico de evidencia (SOP sección 10.4).'
+}
+
+Table historial_elemento [headercolor: #0f9d58] {
+  id integer [pk, increment]
+  elemento_id integer [not null]
+  campo varchar(80) [not null]
+  valor_anterior text
+  valor_nuevo text
+  origen origen_cambio [not null, default: 'manual']
+  usuario varchar(120)
+  comentario text
+  registrado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    elemento_id [name: 'ix_historial_elemento_elemento_id']
+    registrado_en [name: 'ix_historial_elemento_registrado_en']
+  }
+
+  Note: 'Bitácora campo a campo. Retención permanente (SOP sección 12).'
+}
+
+Table vlan [headercolor: #e8710a] {
+  id integer [pk, increment]
+  numero integer [not null]
+  nombre varchar(80) [not null]
+  subred varchar(50)
+  gateway varchar(45)
+  descripcion text
+  edificio_id integer
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    (edificio_id, numero) [unique, name: 'uq_vlan_edificio_numero']
+    numero [name: 'ix_vlan_numero']
+  }
+
+  Note: 'VLAN y su subred asociada (SOP sección 7.1, categoría lógica).'
+}
+
+Table elemento_vlan [headercolor: #e8710a] {
+  id integer [pk, increment]
+  elemento_id integer [not null]
+  vlan_id integer [not null]
+  rol rol_vlan [not null, default: 'servicio']
+
+  indexes {
+    (elemento_id, vlan_id, rol) [unique, name: 'uq_elemento_vlan']
+    elemento_id [name: 'ix_elemento_vlan_elemento_id']
+    vlan_id [name: 'ix_elemento_vlan_vlan_id']
+  }
+
+  Note: 'Vínculo entre un elemento físico y la VLAN que materializa.'
+}
+
+Table enlace [headercolor: #e8710a] {
+  id integer [pk, increment]
+  origen_id integer [not null]
+  puerto_origen varchar(40)
+  destino_id integer
+  puerto_destino varchar(40)
+  destino_descripcion varchar(200)
+  medio medio_enlace [not null, default: 'cobre']
+  categoria varchar(40)
+  etiqueta varchar(160)
+  observaciones text
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    destino_id [name: 'ix_enlace_destino_id']
+    origen_id [name: 'ix_enlace_origen_id']
+  }
+
+  Note: 'Conexión física entre dos elementos.'
+}
+
+Table identificador_externo [headercolor: #e8710a] {
+  id integer [pk, increment]
+  elemento_id integer [not null]
+  sistema varchar(40) [not null]
+  id_externo varchar(120) [not null]
+  url varchar(300)
+  sincronizado_en timestamptz
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    (elemento_id, sistema) [unique, name: 'uq_identificador_externo_elemento_sistema']
+    (sistema, id_externo) [unique, name: 'uq_identificador_externo_sistema_id']
+    elemento_id [name: 'ix_identificador_externo_elemento_id']
+  }
+
+  Note: 'El id que otro sistema le asignó a un elemento.'
+}
+
+Enum categoria_elemento {
+  "activo"
+  "pasivo"
+  "soporte"
+  "logico"
+}
+
+Enum criticidad {
+  "alta"
+  "media"
+  "baja"
+}
+
+Enum estado_condicion {
+  "excelente"
+  "regular"
+  "malo"
+  "obsoleto"
+}
+
+Enum estado_levantamiento {
+  "en_curso"
+  "cerrado"
+}
+
+Enum estado_operativo {
+  "activo"
+  "inactivo"
+  "en_falla"
+  "en_mantenimiento"
+  "retirado"
+}
+
+Enum medio_enlace {
+  "cobre"
+  "fibra"
+  "inalambrico"
+}
+
+Enum origen_cambio {
+  "manual"
+  "monitoreo"
+  "importacion"
+  "sistema"
+}
+
+Enum rol_vlan {
+  "gestion"
+  "servicio"
+  "acceso"
+}
+
+Enum tipo_dato {
+  "texto"
+  "numero"
+  "booleano"
+  "fecha"
+  "enum"
+  "ip"
+  "mac"
+  "lista"
+  "referencia"
+}
+
+Ref fk_definicion_atributo_tipo_elemento_id_tipo_elemento: definicion_atributo.tipo_elemento_id > tipo_elemento.id [delete: cascade]
+Ref fk_elemento_edificio_id_edificio: elemento.edificio_id > edificio.id [delete: restrict]
+Ref fk_elemento_padre_id_elemento: elemento.padre_id > elemento.id [delete: set null]
+Ref fk_elemento_piso_id_piso: elemento.piso_id > piso.id [delete: restrict]
+Ref fk_elemento_plano_id_plano: elemento.plano_id > plano.id [delete: set null]
+Ref fk_elemento_responsable_id_persona: elemento.responsable_id > persona.id [delete: set null]
+Ref fk_elemento_tipo_elemento_id_tipo_elemento: elemento.tipo_elemento_id > tipo_elemento.id
+Ref fk_elemento_tramo_id_tramo: elemento.tramo_id > tramo.id [delete: set null]
+Ref fk_elemento_tramo_lamina_id_tramo: elemento.tramo_lamina_id > tramo.id [delete: set null]
+Ref fk_elemento_vlan_elemento_id_elemento: elemento_vlan.elemento_id > elemento.id [delete: cascade]
+Ref fk_elemento_vlan_vlan_id_vlan: elemento_vlan.vlan_id > vlan.id [delete: cascade]
+Ref fk_enlace_destino_id_elemento: enlace.destino_id > elemento.id [delete: set null]
+Ref fk_enlace_origen_id_elemento: enlace.origen_id > elemento.id [delete: cascade]
+Ref fk_fotografia_elemento_id_elemento: fotografia.elemento_id > elemento.id [delete: cascade]
+Ref fk_historial_elemento_elemento_id_elemento: historial_elemento.elemento_id > elemento.id [delete: cascade]
+Ref fk_identificador_externo_elemento_id_elemento: identificador_externo.elemento_id > elemento.id [delete: cascade]
+Ref fk_levantamiento_edificio_id_edificio: levantamiento.edificio_id > edificio.id [delete: cascade]
+Ref fk_levantamiento_responsable_id_persona: levantamiento.responsable_id > persona.id [delete: set null]
+Ref fk_piso_edificio_id_edificio: piso.edificio_id > edificio.id [delete: cascade]
+Ref fk_plano_piso_id_piso: plano.piso_id > piso.id [delete: cascade]
+Ref fk_plano_tramo_id_tramo: plano.tramo_id > tramo.id [delete: cascade]
+Ref fk_tramo_piso_id_piso: tramo.piso_id > piso.id [delete: cascade]
+Ref fk_vlan_edificio_id_edificio: vlan.edificio_id > edificio.id [delete: set null]
+
+TableGroup territorio [color: #1e6fd9] {
+  edificio
+  piso
+  tramo
+  plano
+  persona
+  levantamiento
+  Note: 'Territorio'
+}
+
+TableGroup catalogo [color: #7c3aed] {
+  tipo_elemento
+  definicion_atributo
+  Note: 'Catálogo'
+}
+
+TableGroup elementos [color: #0f9d58] {
+  elemento
+  fotografia
+  historial_elemento
+  Note: 'Elementos'
+}
+
+TableGroup logica [color: #e8710a] {
+  vlan
+  elemento_vlan
+  enlace
+  identificador_externo
+  Note: 'Lógica y conectividad'
+}

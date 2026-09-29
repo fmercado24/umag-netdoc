@@ -42,7 +42,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           91 pruebas (pytest)
+│   └── tests/           94 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -121,6 +121,9 @@ python3 -m venv .venv
 
 # Fotografías de data/<código>/fotos (nombradas con el código del elemento)
 .venv/bin/python -m app.scripts.cargar_fotografias [CADI]
+
+# Diagrama de la base para dbdiagram.io (tras cambiar el esquema)
+.venv/bin/python -m app.scripts.exportar_dbml -o ../docs/modelo-datos.dbml
 
 .venv/bin/python -m uvicorn app.main:app --reload
 ```
@@ -282,7 +285,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 91 pruebas en verde.
+- Backend completo y verificado: 94 pruebas en verde.
 - 361 elementos del CADI importados desde las planillas por tramo y de puntos
   de datos: 69 equipos (2 racks inferidos), 292 puntos de datos,
   295 enlaces y 4 VLANs. Completitud promedio 46,9 %.

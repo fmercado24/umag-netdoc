@@ -32,6 +32,18 @@ erDiagram
     PERSONA ||--o{ LEVANTAMIENTO : dirige
 ```
 
+El diagrama completo, con columnas, tipos, índices y reglas de borrado, está
+en [`modelo-datos.dbml`](modelo-datos.dbml). Para verlo, abrir
+[dbdiagram.io](https://dbdiagram.io), entrar al editor (*Create your diagram*)
+y pegar el contenido en el panel izquierdo. El archivo se genera desde los
+modelos. Después de cambiar el esquema se regenera, y las pruebas fallan si
+quedó desactualizado:
+
+```bash
+cd backend
+.venv/bin/python -m app.scripts.exportar_dbml -o ../docs/modelo-datos.dbml
+```
+
 ## Las tres decisiones estructurales
 
 ### 1. Atributos híbridos: columnas + JSON dirigido por catálogo
