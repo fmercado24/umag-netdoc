@@ -1,0 +1,12 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto
+RACK-08 DATOS/TEL/CCTV,RACK-08,racks ,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-08,
+EdgeSwitch48 LITE ,SW-COM,switches,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Regular / Aceptable,F.O. P1-R2-SW-SFP-B07,Rack-08,
+EdgeSwitch24 LITE ,SW-TEL IP,switches,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Regular / Aceptable,F/UTP P4-R09-SW1-B1,Rack-08,
+CAT6A / CAT6,, patch panels,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Ocupación total,Rack-08,
+CAT6A,, patch panels,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Disponibilidad 2 puntos,Rack-08,
+CAT6A,, patch panels,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Ocupación total,Rack-08,
+UniFi AP-AC-LR,Wi-Fi-AP P3-T2-01,access points,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-08,
+UniFi AP-AC-LR,Wi-Fi-AP P3-T2-02-3060,access points,Sala Eléctrica 3083,Fuera de servicio / Inactivo / Fuera de línea (Offline),Excelente / Bueno (Óptimo),,Rack-08,
+UniFi AP-AC-LR,Wi-Fi-AP P3-T2-03,access points,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-08,
+TRIPP LITE S3M30KX,Laboratorio de Medicina Molecular,UPS,Sala Eléctrica 3083,Operativo / Activo / En línea (Online),Regular / Aceptable,,,
+TRIPP LITE S3M30KX,Equipos de Red,UPS,Sala Eléctrica 3083,Fuera de servicio / Inactivo / Fuera de línea (Offline),Malo / Crítico,,,

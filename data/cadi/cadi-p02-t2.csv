@@ -1,0 +1,9 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto
+RACK-06 Datos/Tel/CCTV,RACK-06,racks ,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-06,
+EdgeSwitch24 LITE ,SW-COM,switches,Sala Eléctrica,Operativo / Activo / En línea (Online),Regular / Aceptable,F.O P1-R2-SW-SFP-B06,Rack-06,
+CAT6A,24 Puntos, patch panels,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-06,
+EdgeSwitch24 LITE ,SW-TEL,switches,Sala Eléctrica,Operativo / Activo / En línea (Online),Regular / Aceptable,,Rack-06,
+CAT 6A/6,24 puntos, patch panels,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-06,
+UniFi AP-AC-LR,Wi-Fi AP P2-T2-01,access points,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),LAB CEBIMA P2-T2-APX-01,Rack-06,
+UniFi AP-AC-LR,Wi-Fi AP P2-T2-02,access points,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),LAB CEBIMA P2-T2-APX-02,Rack-06,
+TRIPP LITE S3M30KX,,UPS,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,,

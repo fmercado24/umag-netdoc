@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Entorno
+.env
+.env.local
+
+# Media cargada por los usuarios (planos y fotografías de terreno)
+backend/media/planos/*
+backend/media/fotografias/*
+!backend/media/planos/.gitkeep
+!backend/media/fotografias/.gitkeep
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Editores y SO
+.vscode/
+.idea/
+.DS_Store

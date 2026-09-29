@@ -1,0 +1,7 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto,IP,MAC,N° de serie
+Rack cerrado 42U,RACK-01,Racks,Sala de Comunicaciones 101,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-01,,,,
+Cisco CBS350-24P,SW-DATOS,Switches,Sala de Comunicaciones 101,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Enlace: F.O. a Rack-01 edificio DSI,Rack-01,,10.40.0.2,,FOC2345Y0AB
+Patch panel Cat6 24 puertos,24 Puntos,Patch Panel,Sala de Comunicaciones 101,Operativo / Activo / En línea (Online),Regular / Aceptable,Disponibilidad 6 puntos,Rack-01,,,,
+Cabecera de fibra 12 hilos,FO 1 AL 12,Cabecera F.O.,Sala de Comunicaciones 101,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-01,,,,
+UniFi U6 Pro,AP-P1-T1-01,Access Points,Laboratorio 105,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-01,,10.40.0.21,,
+APC Smart-UPS 1500,,UPS,Sala de Comunicaciones 101,Fuera de servicio / Inactivo / Fuera de línea (Offline),Malo / Crítico,Baterías agotadas,,,,,

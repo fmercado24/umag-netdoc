@@ -1,0 +1,10 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto
+Rack-04 Datos/Tel/CCTV,RACK-04 DATOS/TEL/CCTV,Racks ,Circulación 1089,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-04,
+EdgeSwitch48 LITE,SW-COM,Switches,Circulación 1089,Operativo / Activo / En línea (Online),Regular / Aceptable,F.O. Desde P1-R2-SW-SFP-B05,Rack-04,
+EdgeSwitch24 LITE,SW-TEL,Switches,Circulación 1089,Operativo / Activo / En línea (Online),Regular / Aceptable,,Rack-04,
+UnFi AP-AC LR,WIFI-AP-P1-T2--1078,Access Points,Circulación 1089,Operativo / Activo / En línea (Online),Regular / Aceptable,,Rack-04,
+UnFi AP-AC v2,WIFI-AP-P1-T2--1079,Access Points,Circulación 1089,Operativo / Activo / En línea (Online),Regular / Aceptable,,Rack-04,
+CAT 6A,24 puntos, Patch Panels,Circulación 1089,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-04,
+CAT 6A,24 puntos, Patch Panels,Circulación 1089,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-04,
+CAT 6A,24 puntos, Patch Panels,Circulación 1089,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-04,
+TRIPP LITE SVT20KX,,UPS,Circulación 1089,Fuera de servicio / Inactivo / Fuera de línea (Offline),Malo / Crítico,,Rack-04,

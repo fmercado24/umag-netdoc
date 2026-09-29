@@ -1,0 +1,3 @@
+piso,tramo,recinto,lamina,motivo
+P01,T2,,T1,"Ejemplo: todo lo rotulado P01-T2 está dibujado en la lámina del tramo 1"
+P01,T2,auditorio,T2,"Ejemplo: excepto el auditorio, que sí está en la lámina del tramo 2"

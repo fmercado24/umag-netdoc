@@ -1,0 +1,6 @@
+piso,tramo,recinto,lamina,motivo
+P01,T3,,T1,La sala eléctrica de los racks cuenta como tramo 3 pero está dibujada en la lámina del tramo 1
+P01,T3,auditorio,T3,El auditorio está en la lámina del tramo 3
+P01,T3,sala de control 1072,T3,Sala de control del auditorio
+P01,T3,hall 1061,T2,Dibujado en la lámina del tramo 2
+P01,T3,sala de control y tableros 1060,T2,Dibujado en la lámina del tramo 2

@@ -1,0 +1,41 @@
+# Prometheus para NetDoc (perfil "monitoreo" de docker-compose.yml).
+#
+# NetDoc corre en el equipo anfitrión: los contenedores lo alcanzan como
+# host.docker.internal. Hay que levantarlo escuchando en todas las interfaces:
+#   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/reglas.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # Métricas de inventario y de la API (GET /metrics).
+  - job_name: netdoc
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  # Disponibilidad por ping de cada elemento con IP de gestión. La lista y las
+  # etiquetas netdoc_* salen del inventario: lo que se documenta en NetDoc
+  # queda vigilado sin tocar esta configuración.
+  - job_name: netdoc-ping
+    metrics_path: /probe
+    params:
+      module: [icmp]
+    http_sd_configs:
+      - url: http://host.docker.internal:8000/api/v1/integraciones/prometheus/objetivos
+        refresh_interval: 5m
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

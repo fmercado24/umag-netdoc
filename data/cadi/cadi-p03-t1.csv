@@ -1,0 +1,11 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto
+RACK-07 DATOS/TEL/CCTV/SCC,,racks ,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+ Connection TrimmerX,,Cabecera F.O.,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Cabecera F.O. Mg. - Bioinformatica,Rack-07,
+MikroTik CRS312-4C+8XG,,switches,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Router Switch - Mg. Bioinformatica F.O.,Rack-07,
+EdgeSwitch48 ,,switches,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Regular / Aceptable,F.O. P1-R2-SW-SFP B-01,Rack-07,
+D-Link DGS-1210-52,,switches,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+CAT 6A / CAT 6,, patch panels,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+CAT 6A / CAT 6,, patch panels,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+CAT 6A,, patch panels,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+UniFi AP-AC-LR,,access points,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,
+UniFi AP-AC-LR,,access points,Sala Eléctrica 3082,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-07,

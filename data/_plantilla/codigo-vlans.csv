@@ -1,0 +1,4 @@
+numero,nombre,gateway,prefijo,servicio
+3,DATOS,10.40.0.1,/16,datos
+2,TELEFONIA,10.41.0.1,/16,telefonia
+1,SCC/CCTV,192.168.10.1,/24,cctv

@@ -1,0 +1,21 @@
+groups:
+  - name: netdoc
+    rules:
+      # Llega a NetDoc por Alertmanager y deja el elemento "en falla". El "for"
+      # hace de umbral del SOP 11.3 (NETDOC_MONITOREO_MINUTOS_FALLA).
+      - alert: NetDocElementoSinRespuesta
+        expr: probe_success{job="netdoc-ping"} == 0
+        for: 10m
+        labels:
+          severity: critical
+          netdoc: disponibilidad
+        annotations:
+          summary: "{{ $labels.netdoc_codigo }} ({{ $labels.instance }}) no responde a ping"
+
+      - alert: NetDocSinDatos
+        expr: up{job="netdoc"} == 0 or netdoc_base_datos_disponible == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: NetDoc o su base de datos no responden

@@ -1,0 +1,25 @@
+# Alertmanager para NetDoc. Solo las alertas de disponibilidad (netdoc =
+# disponibilidad) van al webhook, que cambia el estado del elemento; el resto
+# se descarta aquí y se puede enviar a correo o chat agregando receptores.
+route:
+  receiver: descartar
+  group_by: [netdoc_codigo]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: netdoc
+      matchers:
+        - netdoc = "disponibilidad"
+
+receivers:
+  - name: descartar
+  - name: netdoc
+    webhook_configs:
+      - url: http://host.docker.internal:8000/api/v1/integraciones/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            # El mismo valor de NETDOC_MONITOREO_TOKEN.
+            credentials: CAMBIAR_POR_NETDOC_MONITOREO_TOKEN

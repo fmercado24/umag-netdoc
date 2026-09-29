@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/arbol.ts","./src/main.tsx","./src/api/cliente.ts","./src/components/BarraSuperior.tsx","./src/components/FormularioElemento.tsx","./src/components/PanelDetalle.tsx","./src/components/PanelLateral.tsx","./src/components/VisorPlano.tsx","./src/components/VistaRack.tsx","./src/types/index.ts"],"version":"5.9.3"}

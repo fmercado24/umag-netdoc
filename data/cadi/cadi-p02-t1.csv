@@ -1,0 +1,9 @@
+Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto
+RACK-05 DATOS/TEL/CCTV,RACK-05,racks ,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-05,
+EdgeSwitch48 LITE,SW-CCTV/COM,switches,Sala Eléctrica,Operativo / Activo / En línea (Online),Regular / Aceptable,F.O. P1-R2-SW-SFP-B2,Rack-05,
+"CAT 6A, CAT 6",24 Puntos, patch panels,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Ocupación total,Rack-05,
+EdgeSwitch24 LITE ,SW-TEL,switches,Sala Eléctrica,Operativo / Activo / En línea (Online),Regular / Aceptable,,Rack-05,
+CAT 6A,24 puntos, patch panels,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),disponibilidad 15 puntos,Rack-05,
+CAT 6A,24 puntos, patch panels,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),disponibilidad 5 puntos,Rack-05,
+UniFi AP-AC-LR,SALA USO MULTIPLE P2-T1-APX,access points,Sala Eléctrica,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),,Rack-05,
+TRIPP LITE SVT20KX,,UPS,Sala Eléctrica,Fuera de servicio / Inactivo / Fuera de línea (Offline),Malo / Crítico,,,
