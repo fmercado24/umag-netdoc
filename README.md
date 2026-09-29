@@ -308,4 +308,4 @@ propio.
 - ANSI/TIA-568 (cableado estructurado) y ANSI/TIA-606-C (administración de
   infraestructura de telecomunicaciones).
 
-**Nota: Se utilizó Vibe Coding para facilitar el trabajo de este pryecto**
+**Nota: Se utilizó Vibe Coding para facilitar el trabajo de este proyecto**
