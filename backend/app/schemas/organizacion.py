@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import asdict
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.servicios.teselas import leer_teselas
 
 BASE = ConfigDict(from_attributes=True)
 
@@ -24,6 +28,15 @@ class PersonaCrear(BaseModel):
     rol: str | None = None
 
 
+class TeselasLeer(BaseModel):
+    """La lámina pre-dibujada en teselas (ver ``app.servicios.teselas``)."""
+
+    url: str = Field(description="Bajo /media, con {z}, {x} e {y}")
+    zoom_max: int = Field(description="Nivel del visor del nivel más detallado de la pirámide")
+    niveles: int
+    tamano: int
+
+
 class PlanoLeer(BaseModel):
     model_config = BASE
 
@@ -39,6 +52,14 @@ class PlanoLeer(BaseModel):
     version: str | None = None
     vigente: bool
     notas: str | None = None
+    #: Nulo mientras no se generen: el visor muestra entonces la lámina original.
+    teselas: TeselasLeer | None = None
+
+    @model_validator(mode="after")
+    def _con_teselas(self) -> PlanoLeer:
+        if self.teselas is None and (info := leer_teselas(self.archivo)) is not None:
+            self.teselas = TeselasLeer(**asdict(info))
+        return self
 
 
 class TramoLeer(BaseModel):

@@ -171,13 +171,44 @@ que es como se numeran los planos.
 Leaflet mide la latitud hacia arriba, así que el visor convierte en el borde:
 
 ```
-latlng = (alto_px - y, x)
+latlng = (-y, x)
 ```
+
+La esquina superior izquierda del plano queda en el origen y la lámina ocupa
+latitudes negativas. Así la grilla de teselas de Leaflet, que parte del
+origen, coincide con la de la pirámide de teselas de la lámina (ver
+[Teselas](#teselas)).
 
 La conversión vive únicamente en `frontend/src/components/VisorPlano.tsx`
 (`aLatLng` / `aCoordenadas`). El backend almacena siempre coordenadas de plano,
 nunca coordenadas de Leaflet: si mañana el visor cambia a Konva o a SVG, los
 datos siguen siendo válidos.
+
+### Teselas
+
+Las láminas de CAD traen cientos de miles de trazos (las del CADI, hasta
+180 000 en 30 MB). Como imagen única, el navegador vuelve a dibujarlos todos
+cada vez que necesita un pedazo nuevo del plano, y el visor se arrastra al
+moverlo. Por eso cada plano vigente se pre-dibuja una vez, como un mapa web,
+en una pirámide de teselas WebP de 256×256 (`app/servicios/teselas.py`, con
+libvips):
+
+- En el nivel `z` del visor, una unidad del plano mide `2^z` píxeles. El nivel
+  más detallado de la pirámide se elige para que la lámina mida unos 12 000
+  px de ancho: `z = 2` en las del CADI, que deja legibles los rótulos de los
+  puntos de datos. El visor permite acercarse un nivel más, con las teselas
+  al doble.
+- Se guardan en `media/teselas/<archivo del plano>/{z}/{y}/{x}.webp` con
+  `teselas.json`. La API las entrega en `plano.teselas` (nulo mientras no
+  existan, y el visor muestra entonces la lámina original).
+- Las genera `cargar_planos`, al iniciar el sistema, para todo plano vigente
+  que no las tenga, y la API en segundo plano tras subir un plano. Cada
+  lámina se dibuja en un proceso aparte: con las del CADI toma de 5 a 20 s y
+  hasta ~1 GB de memoria, que se libera al terminar. Con `NETDOC_TESELAS=0`
+  no se generan.
+
+Con las teselas, un arrastre sobre la lámina más pesada del CADI pasó de
+2,3 s de dibujo en el navegador a 15 ms, y de cuadros de hasta 133 ms a 17 ms.
 
 ### Láminas por tramo
 

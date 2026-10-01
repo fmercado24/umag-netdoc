@@ -16,6 +16,9 @@ _DIR_TEMPORAL = tempfile.mkdtemp(prefix="netdoc-tests-")
 os.environ["NETDOC_DATABASE_URL"] = f"sqlite:///{Path(_DIR_TEMPORAL) / 'prueba.db'}"
 os.environ["NETDOC_DIR_MEDIA"] = str(Path(_DIR_TEMPORAL) / "media")
 os.environ["NETDOC_MONITOREO_TOKEN"] = "token-de-prueba"
+# Dibujar teselas toma un proceso aparte por plano: solo las pruebas de
+# teselas lo activan.
+os.environ["NETDOC_TESELAS"] = "0"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

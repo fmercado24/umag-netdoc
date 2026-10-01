@@ -24,6 +24,10 @@ piso–tramo, así que el script puede correrse cada vez que se inicia el sistem
   anteriores quedan en su historial) y el script los lista para volver a
   marcarlos en el visor.
 
+Después se generan las teselas de cada plano vigente que aún no las tiene
+(ver ``app.servicios.teselas``): es lo que el visor muestra para moverse con
+fluidez. Toma unos segundos por lámina y se hace una sola vez por versión.
+
 Las dimensiones del plano se toman del propio SVG. Antes de cargar las láminas
 conviene pasarlas por ``app.scripts.preparar_laminas`` (limpieza y
 orientación).
@@ -33,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree
@@ -53,6 +58,7 @@ from app.servicios.planos import (
     sanear_svg,
     trasladar_posiciones,
 )
+from app.servicios.teselas import asegurar_teselas, leer_teselas
 
 
 def dir_planos_de(codigo_edificio: str) -> Path:
@@ -191,6 +197,34 @@ def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> Resultado
     return resultado
 
 
+def generar_teselas_pendientes(codigo_edificio: str) -> None:
+    """Teselas de los planos vigentes del edificio que todavía no las tienen.
+
+    Va aparte de ``cargar`` y después de confirmar sus cambios: dibujar una
+    lámina toma segundos, y la base no debe quedar retenida mientras tanto.
+    """
+    with SesionLocal() as sesion:
+        planos = sesion.scalars(
+            select(Plano)
+            .join(Piso, Plano.piso_id == Piso.id)
+            .join(Edificio, Piso.edificio_id == Edificio.id)
+            .where(Edificio.codigo == codigo_edificio.upper(), Plano.vigente.is_(True))
+            .order_by(Plano.nombre)
+        )
+        pendientes = [
+            (p.nombre, p.archivo, p.ancho_px) for p in planos if not leer_teselas(p.archivo)
+        ]
+    if not pendientes:
+        return
+    print(f"  Generando teselas de {len(pendientes)} lámina(s), unos segundos c/u…", flush=True)
+    for nombre, archivo, ancho_px in pendientes:
+        inicio = time.monotonic()
+        if asegurar_teselas(archivo, ancho_px):
+            print(f"    ▦ {nombre} ({time.monotonic() - inicio:.0f} s)", flush=True)
+        else:
+            print(f"    ! {nombre}: sin teselas, el visor mostrará la lámina original", flush=True)
+
+
 def edificios_con_planos() -> list[str]:
     """Códigos de los edificios que tienen ``data/<código>/planos``."""
     return sorted(
@@ -240,6 +274,8 @@ def main(argumentos: list[str] | None = None) -> None:
                 "  Para renombrarlas a la nomenclatura: "
                 f"python -m app.scripts.preparar_laminas {codigo} --aplicar"
             )
+        generar_teselas_pendientes(codigo)
+
 
 if __name__ == "__main__":
     main()

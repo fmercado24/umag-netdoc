@@ -26,6 +26,16 @@ export interface Tramo {
   nombre: string | null
 }
 
+/** La lámina pre-dibujada en una pirámide de teselas (ver backend/app/servicios/teselas.py). */
+export interface Teselas {
+  /** Bajo /media, con {z}, {x} e {y}. */
+  url: string
+  /** Nivel del visor que corresponde al nivel más detallado de la pirámide. */
+  zoom_max: number
+  niveles: number
+  tamano: number
+}
+
 export interface Plano {
   id: number
   piso_id: number
@@ -40,6 +50,8 @@ export interface Plano {
   version: string | null
   vigente: boolean
   notas: string | null
+  /** Nulo mientras no se generen: se muestra la lámina original, más lenta. */
+  teselas: Teselas | null
 }
 
 export interface Piso {

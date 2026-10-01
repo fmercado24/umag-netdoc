@@ -349,6 +349,11 @@ O, en vez de los tres comandos, `./iniciar.sh`: importa los edificios
 nuevos, carga las fotos pendientes y los planos nuevos o modificados de todos,
 y levanta el sistema.
 
+Al cargar un plano se generan también sus **teselas**: el plano pre-dibujado
+en imágenes chicas, que es lo que permite moverlo y acercarlo con fluidez en
+el visor. Toma de 5 a 20 segundos por lámina y se hace una sola vez por
+versión (`▦ ING P01 · Tramo 1 (12 s)`).
+
 ## 8. Ubicar racks y puntos de datos en el visor
 
 Abra el visor (`http://localhost:5173`, o la dirección del servidor) y elija
@@ -424,6 +429,7 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | `… ya tiene la lámina «…»` | Dos archivos para el mismo piso–tramo (por ejemplo, `ING-P01.svg` y `ing-p01.svg`) | Deje uno solo |
 | La lámina se ve rota o en blanco | Caracteres inválidos o no es SVG válido | `preparar_laminas ING --aplicar` |
 | El plano se ve de lado | Dibujo girado dentro de la hoja | `preparar_laminas ING --aplicar` |
+| El plano se mueve lento o se ve borroso al acercarlo mucho | Lento: aún no tiene teselas (recién subido por la API, o `! … sin teselas` al cargar). Borroso: se acercó más allá del detalle de las teselas | Reinicie con `./iniciar.sh`, que genera las que falten. Revise que no esté `NETDOC_TESELAS=0` en `.env` |
 | `el piso P0X no existe en el sistema` al cargar planos | Hay lámina pero ningún elemento en ese piso (los pisos se crean al importar) | Importe ese piso, o créelo en `http://localhost:8000/docs` → `POST /api/v1/edificios/ING/pisos` y vuelva a cargar los planos |
 | Un punto de datos no aparece al elegir su tramo | Está dibujado en la lámina de otro tramo | Fila *Lámina* de su ficha, o `ing-laminas.csv` |
 | No se puede ubicar un switch | Está montado en un rack | Ubique el rack; el switch se ve dentro |

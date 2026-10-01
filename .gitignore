@@ -15,9 +15,11 @@ venv/
 .env
 .env.local
 
-# Media cargada por los usuarios (planos y fotografías de terreno)
+# Media cargada por los usuarios (planos y fotografías de terreno) y las
+# teselas que se generan de los planos
 backend/media/planos/*
 backend/media/fotografias/*
+backend/media/teselas/
 !backend/media/planos/.gitkeep
 !backend/media/fotografias/.gitkeep
 

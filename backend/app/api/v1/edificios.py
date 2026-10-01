@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 
 from app.api.deps import SesionBD, obtener_edificio, obtener_piso, obtener_tramo
@@ -24,6 +32,7 @@ from app.servicios.planos import (
     guardar_plano,
     trasladar_posiciones,
 )
+from app.servicios.teselas import asegurar_teselas
 
 router = APIRouter(prefix="/edificios", tags=["edificios"])
 
@@ -124,6 +133,7 @@ def cargar_plano(
     codigo: str,
     codigo_piso: str,
     sesion: SesionBD,
+    tareas: BackgroundTasks,
     archivo: UploadFile = File(
         ...,
         description="Plano en SVG, PNG, JPG o PDF, con nombre <edificio>-p<piso>[-t<tramo>].<ext>",
@@ -145,6 +155,9 @@ def cargar_plano(
     guardan las posiciones de los elementos, por eso se piden explícitamente
     en lugar de inferirlos: fija la referencia aunque el archivo se
     reemplace por una versión reescalada.
+
+    Las teselas con que el visor muestra la lámina se generan después de
+    responder: mientras tanto se ve la lámina original.
 
     Si ya había una lámina para ese piso–tramo, queda como histórica. Los
     elementos ubicados sobre ella pasan a la nueva si el tamaño es el mismo;
@@ -172,4 +185,5 @@ def cargar_plano(
     except (SvgInvalido, NombreLaminaInvalido) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     trasladar_posiciones(sesion, plano, origen=OrigenCambio.MANUAL)
+    tareas.add_task(asegurar_teselas, plano.archivo, plano.ancho_px)
     return plano

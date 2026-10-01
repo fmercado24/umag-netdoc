@@ -42,7 +42,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           108 pruebas (pytest)
+│   └── tests/           117 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -89,7 +89,10 @@ aplica las migraciones pendientes, solo reinstala si cambiaron
 carga las fotos nuevas y revisa todas las láminas: una nueva o modificada en
 `data/<código>/planos` entra como versión nueva (ver
 [Cargar el plano de un piso](#cargar-el-plano-de-un-piso)). Nunca reimporta
-elementos ni reemplaza sus datos. Con `NETDOC_API_HOST=0.0.0.0` la API escucha en la red (necesario
+elementos ni reemplaza sus datos. También genera las teselas que falten:
+cada plano pre-dibujado en imágenes chicas, para que el visor se mueva con
+fluidez sobre láminas de CAD pesadas (de 5 a 20 s por lámina, una sola vez;
+ver [modelo de datos](docs/modelo-datos.md#teselas)). Con `NETDOC_API_HOST=0.0.0.0` la API escucha en la red (necesario
 para el [monitoreo](docs/manual-monitoreo.md)). Deja el visor en
 <http://localhost:5173> y la API en <http://localhost:8000>; **Ctrl+C** detiene
 ambos, y si uno de los dos se cae el script cierra el otro.
@@ -303,7 +306,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 108 pruebas en verde.
+- Backend completo y verificado: 117 pruebas en verde.
 - 361 elementos del CADI importados desde las planillas por tramo y de puntos
   de datos: 69 equipos (2 racks inferidos), 292 puntos de datos,
   295 enlaces y 4 VLANs. Completitud promedio 46,9 %.

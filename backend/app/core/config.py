@@ -38,6 +38,11 @@ class Configuracion(BaseSettings):
     #: Carpeta donde se almacenan planos y fotografías de evidencia.
     dir_media: Path = DIR_BACKEND / "media"
 
+    #: Pre-dibujar las láminas en teselas para que el visor se mueva con
+    #: fluidez (app.servicios.teselas). Toma ~1 GB de memoria por unos segundos
+    #: con las láminas grandes; sin ellas, el visor muestra la lámina original.
+    teselas: bool = True
+
     #: Token compartido con la herramienta de monitoreo (Zabbix). Vacío
     #: deshabilita el endpoint de sincronización automática de estado.
     monitoreo_token: str = ""

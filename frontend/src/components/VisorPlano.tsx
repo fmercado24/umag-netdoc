@@ -2,31 +2,87 @@
  * Visor del plano de piso.
  *
  * El plano se monta como capa base de un mapa Leaflet con CRS.Simple, de modo
- * que las coordenadas del sistema son directamente los píxeles del plano: no
+ * que las coordenadas del sistema son directamente las unidades del plano: no
  * hay proyección geográfica de por medio. Leaflet mide la latitud hacia
  * arriba y los planos numeran el eje Y hacia abajo, así que la conversión se
- * concentra en `aLatLng` / `aCoordenadas`.
+ * concentra en `aLatLng` / `aCoordenadas`: la esquina superior izquierda del
+ * plano es el origen y la lámina ocupa latitudes negativas. Así la grilla de
+ * teselas de Leaflet, que parte del origen, calza con la de la pirámide.
+ *
+ * La lámina se muestra con sus teselas cuando existen: un SVG de CAD tiene
+ * cientos de miles de trazos y, como imagen única, el navegador los vuelve a
+ * dibujar cada vez que se mueve o acerca el plano.
  */
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect } from 'react'
-import { ImageOverlay, MapContainer, Marker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import {
+  ImageOverlay,
+  MapContainer,
+  Marker,
+  Popup,
+  TileLayer,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet'
 
 import { urlMedia } from '../api/cliente'
 import { colorDelGrupo } from '../arbol'
 import type { Nodo, NodoGrupo } from '../arbol'
 import type { ElementoMapa, Plano } from '../types'
 
-export function aLatLng(plano: Plano, x: number, y: number): L.LatLngTuple {
-  return [plano.alto_px - y, x]
+export function aLatLng(x: number, y: number): L.LatLngTuple {
+  return [-y, x]
 }
 
-export function aCoordenadas(plano: Plano, punto: L.LatLng): { x: number; y: number } {
+export function aCoordenadas(punto: L.LatLng): { x: number; y: number } {
   return {
     x: Math.round(punto.lng * 100) / 100,
-    y: Math.round((plano.alto_px - punto.lat) * 100) / 100,
+    y: Math.round(-punto.lat * 100) / 100,
   }
+}
+
+function limitesDe(plano: Plano): L.LatLngBoundsLiteral {
+  return [
+    [-plano.alto_px, 0],
+    [0, plano.ancho_px],
+  ]
+}
+
+const ZOOM_MIN = -4
+const ZOOM_MAX = 4
+
+/**
+ * Con teselas, el acercamiento llega un nivel más allá del más detallado de
+ * la pirámide: ahí las teselas se ven al doble, todavía nítidas. Más allá se
+ * verían borrosas, y el nivel más detallado ya deja leer los rótulos.
+ */
+function zoomMaximo(plano: Plano): number {
+  return plano.teselas ? Math.min(ZOOM_MAX, plano.teselas.zoom_max + 1) : ZOOM_MAX
+}
+
+/** La lámina: sus teselas si ya se generaron o, si no, la imagen original. */
+function Lamina({ plano }: { plano: Plano }) {
+  const limites = limitesDe(plano)
+  const { teselas } = plano
+  if (!teselas) return <ImageOverlay url={urlMedia(plano.archivo)} bounds={limites} />
+  // El nivel z del visor es el nivel z + zoomOffset de la pirámide; fuera del
+  // rango de la pirámide, Leaflet amplía o reduce el nivel más cercano.
+  return (
+    <TileLayer
+      url={urlMedia(teselas.url)}
+      tileSize={teselas.tamano}
+      zoomOffset={teselas.niveles - 1 - teselas.zoom_max}
+      minNativeZoom={teselas.zoom_max - (teselas.niveles - 1)}
+      maxNativeZoom={teselas.zoom_max}
+      minZoom={ZOOM_MIN}
+      maxZoom={zoomMaximo(plano)}
+      bounds={limites}
+      noWrap
+    />
+  )
 }
 
 /** Los contenedores (racks) se distinguen por la forma y
@@ -64,10 +120,7 @@ function iconoGrupo(grupo: NodoGrupo, seleccionado: boolean): L.DivIcon {
 function AjustarVista({ plano }: { plano: Plano }) {
   const mapa = useMap()
   useEffect(() => {
-    const limites: L.LatLngBoundsExpression = [
-      [0, 0],
-      [plano.alto_px, plano.ancho_px],
-    ]
+    const limites = limitesDe(plano)
     mapa.setMaxBounds(L.latLngBounds(limites).pad(0.25))
     mapa.fitBounds(limites)
   }, [mapa, plano.id, plano.alto_px, plano.ancho_px])
@@ -90,18 +143,16 @@ function SeguirTamano() {
 }
 
 function CapturadorClic({
-  plano,
   activo,
   onPosicionar,
 }: {
-  plano: Plano
   activo: boolean
   onPosicionar: (x: number, y: number) => void
 }) {
   useMapEvents({
     click(evento) {
       if (!activo) return
-      const { x, y } = aCoordenadas(plano, evento.latlng)
+      const { x, y } = aCoordenadas(evento.latlng)
       onPosicionar(x, y)
     },
   })
@@ -168,10 +219,7 @@ export function VisorPlano({
     )
   }
 
-  const limites: L.LatLngBoundsExpression = [
-    [0, 0],
-    [plano.alto_px, plano.ancho_px],
-  ]
+  const limites = limitesDe(plano)
   const posicionandoPD = posicionando?.tipo_codigo === 'PD'
 
   /**
@@ -184,7 +232,7 @@ export function VisorPlano({
     (evento: L.LeafletMouseEvent) => {
       if (!posicionando) return alternativa()
       if (esPD && posicionandoPD) return onPosicionar(x, y)
-      const punto = aCoordenadas(plano, evento.latlng)
+      const punto = aCoordenadas(evento.latlng)
       onPosicionar(punto.x, punto.y)
     }
 
@@ -201,16 +249,16 @@ export function VisorPlano({
         key={plano.id}
         crs={L.CRS.Simple}
         bounds={limites}
-        minZoom={-4}
-        maxZoom={4}
+        minZoom={ZOOM_MIN}
+        maxZoom={zoomMaximo(plano)}
         zoomSnap={0.25}
         attributionControl={false}
         className="mapa"
       >
         <AjustarVista plano={plano} />
         <SeguirTamano />
-        <CapturadorClic plano={plano} activo={Boolean(posicionando)} onPosicionar={onPosicionar} />
-        <ImageOverlay url={urlMedia(plano.archivo)} bounds={limites} />
+        <CapturadorClic activo={Boolean(posicionando)} onPosicionar={onPosicionar} />
+        <Lamina plano={plano} />
 
         {nodos.map((nodo) => {
           if (nodo.tipo === 'grupo') {
@@ -220,7 +268,7 @@ export function VisorPlano({
             return (
               <Marker
                 key={nodo.clave}
-                position={aLatLng(plano, nodo.pos_x, nodo.pos_y)}
+                position={aLatLng(nodo.pos_x, nodo.pos_y)}
                 icon={iconoGrupo(nodo, nodo.miembros.some((m) => m.id === seleccionadoId))}
                 eventHandlers={{ click: alClicEnMarcador(nodo.pos_x, nodo.pos_y, true, () => {}) }}
               >
@@ -272,7 +320,7 @@ export function VisorPlano({
           return (
             <Marker
               key={nodo.clave}
-              position={aLatLng(plano, x, y)}
+              position={aLatLng(x, y)}
               icon={iconoElemento(elemento, elemento.id === contenedorSeleccionadoId, totalHijos)}
               eventHandlers={{
                 click: alClicEnMarcador(x, y, elemento.tipo_codigo === 'PD', () =>
