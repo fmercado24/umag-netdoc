@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
 from app.api.deps import SesionBD, obtener_edificio, obtener_piso, obtener_tramo
-from app.models import Edificio, Piso, Tramo
+from app.models import Edificio, OrigenCambio, Piso, Tramo
 from app.schemas.organizacion import (
     EdificioCrear,
     EdificioDetalle,
@@ -17,7 +17,13 @@ from app.schemas.organizacion import (
     TramoCrear,
     TramoLeer,
 )
-from app.servicios.planos import FormatoNoAdmitido, SvgInvalido, guardar_plano
+from app.servicios.planos import (
+    FormatoNoAdmitido,
+    NombreLaminaInvalido,
+    SvgInvalido,
+    guardar_plano,
+    trasladar_posiciones,
+)
 
 router = APIRouter(prefix="/edificios", tags=["edificios"])
 
@@ -118,7 +124,10 @@ def cargar_plano(
     codigo: str,
     codigo_piso: str,
     sesion: SesionBD,
-    archivo: UploadFile = File(..., description="Plano en SVG, PNG, JPG o PDF"),
+    archivo: UploadFile = File(
+        ...,
+        description="Plano en SVG, PNG, JPG o PDF, con nombre <edificio>-p<piso>[-t<tramo>].<ext>",
+    ),
     ancho_px: int = Form(..., gt=0, description="Ancho del plano en sus propias unidades"),
     alto_px: int = Form(..., gt=0, description="Alto del plano en sus propias unidades"),
     tramo: str | None = Form(None, description="Tramo que cubre la lámina; vacío = piso completo"),
@@ -128,16 +137,25 @@ def cargar_plano(
 ):
     """Carga el plano del piso (o de uno de sus tramos) y lo marca como vigente.
 
+    El archivo debe llamarse según la nomenclatura de las láminas y
+    corresponder al destino: ``cadi-p01-t2.svg`` solo se acepta para el tramo
+    T2 del piso P01 del CADI.
+
     ``ancho_px`` y ``alto_px`` definen el sistema de coordenadas en que se
     guardan las posiciones de los elementos, por eso se piden explícitamente
     en lugar de inferirlos: fija la referencia aunque el archivo se
     reemplace por una versión reescalada.
+
+    Si ya había una lámina para ese piso–tramo, queda como histórica. Los
+    elementos ubicados sobre ella pasan a la nueva si el tamaño es el mismo;
+    si cambió, quedan sin ubicar (las coordenadas anteriores quedan en su
+    historial).
     """
     edificio = obtener_edificio(sesion, codigo)
     piso = obtener_piso(sesion, edificio, codigo_piso)
     tramo_sel = obtener_tramo(sesion, piso, tramo)
     try:
-        return guardar_plano(
+        plano = guardar_plano(
             sesion,
             piso,
             tramo_sel,
@@ -151,5 +169,7 @@ def cargar_plano(
         )
     except FormatoNoAdmitido as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
-    except SvgInvalido as exc:
+    except (SvgInvalido, NombreLaminaInvalido) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    trasladar_posiciones(sesion, plano, origen=OrigenCambio.MANUAL)
+    return plano

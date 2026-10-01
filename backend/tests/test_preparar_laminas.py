@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.scripts.preparar_laminas import diagnosticar, preparar
+from app.scripts.preparar_laminas import diagnosticar, main, preparar
 
 
 def _lamina(transformacion: str, ancho: int = 100, alto: int = 200, textos: int = 5) -> bytes:
@@ -56,3 +56,34 @@ def test_el_texto_mixto_no_se_gira():
         b"</svg>", b'<text>a</text><text>b</text><text>c</text></svg>'
     )
     assert diagnosticar(mixto).giro == 0
+
+
+def test_renombra_a_la_nomenclatura_lo_que_se_deja_deducir(tmp_path, capsys):
+    horizontal = _lamina("matrix(1,0,0,1,10,10)", ancho=200, alto=100)
+    (tmp_path / "ing 1er piso tramo 2.svg").write_bytes(horizontal)
+    (tmp_path / "planta 3er piso.svg").write_bytes(horizontal)
+    (tmp_path / "leyenda.svg").write_bytes(horizontal)
+    (tmp_path / "ing-p04.svg").write_bytes(horizontal)  # ya estándar
+    (tmp_path / "ing-p01-t1.svg").write_bytes(horizontal)
+    (tmp_path / "ING_P01_T01.svg").write_bytes(horizontal)  # chocaría con la anterior
+
+    main(["ING", "--carpeta", str(tmp_path)])
+    salida = capsys.readouterr().out
+    assert "ing 1er piso tramo 2.svg: 200×100" in salida
+    assert "→ limpiar, renombrar a «ing-p01-t2.svg»" in salida
+    assert "! «leyenda.svg» no sigue la nomenclatura" in salida
+    assert (tmp_path / "ing 1er piso tramo 2.svg").exists()  # sin --aplicar no toca nada
+
+    main(["ING", "--carpeta", str(tmp_path), "--aplicar"])
+    salida = capsys.readouterr().out
+    assert sorted(r.name for r in tmp_path.glob("*.svg")) == [
+        "ING_P01_T01.svg",
+        "ing-p01-t1.svg",
+        "ing-p01-t2.svg",
+        "ing-p03.svg",
+        "ing-p04.svg",
+        "leyenda.svg",
+    ]
+    assert "! no se renombra «ING_P01_T01.svg»: ya existe «ing-p01-t1.svg»" in salida
+    # El original limpiado queda con su nombre de origen.
+    assert (tmp_path / "originales" / "ing 1er piso tramo 2.svg").exists()

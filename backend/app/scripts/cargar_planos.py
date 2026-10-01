@@ -1,67 +1,76 @@
-"""Carga las láminas de un edificio que aún no tienen plano vigente.
+"""Carga las láminas nuevas o modificadas de los edificios.
 
     python -m app.scripts.cargar_planos              # todos los edificios con carpeta
     python -m app.scripts.cargar_planos ING CADI     # solo esos
     python -m app.scripts.cargar_planos ING --planos /otra/carpeta
 
-Las láminas se buscan en ``data/<código en minúsculas>/planos`` y se
-reconocen por nombre, de dos formas:
+Las láminas se buscan en ``data/<código en minúsculas>/planos`` y su nombre
+dice dónde van, con la nomenclatura obligatoria de las planillas:
+``ing-p01-t2.svg`` (tramo T2 del piso P01), ``ing-p04.svg`` (piso P04
+completo), ``ing-p00.svg`` (subterráneo). Un archivo que no la sigue, que es
+de otro edificio o que no es SVG se informa y no se carga; si el nombre se
+deja deducir («ing 1er piso tramo 2.svg»), el aviso trae el nombre correcto,
+y ``app.scripts.preparar_laminas ING --aplicar`` renombra esos archivos.
 
-* compacta, como las planillas: ``ing-p01-t2.svg`` (tramo T2 del piso P01),
-  ``ing-p04.svg`` (piso P04 completo), ``ing-p00.svg`` (subterráneo);
-* descriptiva, como las entregó la DSI para el CADI: «cadi 1er piso tramo
-  2.svg», «cadi 4to piso.svg», «cadi subterraneo.svg».
+Se compara el contenido de cada lámina con las versiones ya registradas de su
+piso–tramo, así que el script puede correrse cada vez que se inicia el sistema:
 
-Un piso–tramo que ya tiene plano vigente no se toca, así que el script puede
-correrse cada vez que se inicia el sistema. Una versión nueva de una lámina ya
-cargada se sube con el endpoint de planos. Antes de cargarlas conviene pasar
-las láminas por ``app.scripts.preparar_laminas`` (limpieza y orientación).
+* sin plano vigente, la lámina se carga;
+* igual a la vigente, o a una anterior, no se toca. Esto último protege una
+  versión subida después desde el visor o la API;
+* distinta de todas, se carga como versión nueva y la anterior queda como
+  histórica. Los elementos ubicados sobre ella pasan a la nueva si la lámina
+  conserva su tamaño. Si el tamaño cambió, quedan sin ubicar (las coordenadas
+  anteriores quedan en su historial) y el script los lista para volver a
+  marcarlos en el visor.
 
-Las dimensiones del plano se toman del propio SVG: en la primera carga todavía
-no hay posiciones que dependan de ellas.
+Las dimensiones del plano se toman del propio SVG. Antes de cargar las láminas
+conviene pasarlas por ``app.scripts.preparar_laminas`` (limpieza y
+orientación).
 """
 
 from __future__ import annotations
 
 import argparse
 import re
-import unicodedata
+from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import configuracion
 from app.db.session import SesionLocal
-from app.models import Edificio, Piso, Tramo
+from app.models import Edificio, OrigenCambio, Piso, Plano, Tramo
 from app.scripts.importar_edificio import DIR_DATA
-from app.servicios.planos import PlanoRechazado, guardar_plano, sanear_svg
+from app.servicios.planos import (
+    NombreLaminaInvalido,
+    PlanoRechazado,
+    guardar_plano,
+    interpretar_nombre_lamina,
+    quitar_caracteres_de_control,
+    sanear_svg,
+    trasladar_posiciones,
+)
 
 
 def dir_planos_de(codigo_edificio: str) -> Path:
     return DIR_DATA / codigo_edificio.lower() / "planos"
 
 
-RE_PISO = re.compile(r"(\d+)\s*[a-z]*\s+piso")
-RE_TRAMO = re.compile(r"tramo\s*(\d+)")
-RE_COMPACTO = re.compile(r"(?:^|[-_ ])p(\d{1,2})(?:-t(\d+))?\.svg$")
-
-
-def ubicar_lamina(nombre_archivo: str) -> tuple[str, str | None] | None:
-    """Piso y tramo que cubre la lámina según su nombre, o None si no se reconoce."""
-    base = unicodedata.normalize("NFKD", nombre_archivo).encode("ascii", "ignore").decode()
-    base = base.lower()
-    if compacto := RE_COMPACTO.search(base):
-        tramo = compacto.group(2)
-        return f"P{int(compacto.group(1)):02d}", f"T{int(tramo)}" if tramo else None
-    if "subterraneo" in base:
-        piso = "P00"
-    elif coincidencia := RE_PISO.search(base):
-        piso = f"P{int(coincidencia.group(1)):02d}"
-    else:
-        return None
-    tramo = RE_TRAMO.search(base)
-    return piso, f"T{int(tramo.group(1))}" if tramo else None
+def archivos_de_laminas(carpeta: Path) -> list[Path]:
+    """Los archivos de la carpeta de láminas, sin subcarpetas (``originales/``),
+    ocultos ni los ``:Zone.Identifier`` que deja Windows al descargar."""
+    if not carpeta.is_dir():
+        return []
+    return sorted(
+        ruta
+        for ruta in carpeta.iterdir()
+        if ruta.is_file()
+        and not ruta.name.startswith(".")
+        and not ruta.name.endswith(":Zone.Identifier")
+    )
 
 
 def dimensiones_svg(contenido: bytes) -> tuple[int, int]:
@@ -77,7 +86,32 @@ def dimensiones_svg(contenido: bytes) -> tuple[int, int]:
     return round(ancho), round(alto)
 
 
-def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> tuple[int, list[str]]:
+@dataclass
+class Resultado:
+    nuevos: int = 0
+    actualizados: int = 0
+    omitidos: list[str] = field(default_factory=list)
+    #: Omitidas por un nombre fuera de la nomenclatura que se deja corregir.
+    renombrables: int = 0
+    #: Códigos de los elementos que quedaron sin ubicar, por lámina.
+    sin_ubicar: dict[str, list[str]] = field(default_factory=dict)
+
+
+def _ya_registrada(contenido: bytes, versiones: list[Plano]) -> bool:
+    """Si la lámina es idéntica a alguna versión guardada (la vigente primero)."""
+    for plano in sorted(versiones, key=lambda p: not p.vigente):
+        guardado = configuracion.dir_media / plano.archivo
+        # El tamaño descarta casi siempre sin leer archivos de decenas de MB.
+        if (
+            guardado.is_file()
+            and guardado.stat().st_size == len(contenido)
+            and guardado.read_bytes() == contenido
+        ):
+            return True
+    return False
+
+
+def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> Resultado:
     codigo_edificio = codigo_edificio.upper()
     edificio = sesion.scalar(select(Edificio).where(Edificio.codigo == codigo_edificio))
     if edificio is None:
@@ -86,20 +120,35 @@ def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> tuple[int
             "(ver docs/guia-nuevo-edificio.md)"
         )
 
-    cargados = 0
-    omitidos: list[str] = []
-    for ruta in sorted(dir_planos.glob("*.svg")):
-        ubicacion = ubicar_lamina(ruta.name)
-        if ubicacion is None:
-            omitidos.append(f"{ruta.name}: el nombre no indica el piso")
+    resultado = Resultado()
+    vistas: dict[tuple[str, str | None], str] = {}
+    for ruta in archivos_de_laminas(dir_planos):
+        try:
+            lamina = interpretar_nombre_lamina(ruta.name, edificio=codigo_edificio)
+        except NombreLaminaInvalido as exc:
+            resultado.omitidos.append(str(exc))
+            resultado.renombrables += exc.sugerencia is not None
             continue
-        codigo_piso, codigo_tramo = ubicacion
+        if lamina.extension != ".svg":
+            resultado.omitidos.append(
+                f"«{ruta.name}»: desde la carpeta solo se cargan láminas SVG (guía, sección 4)"
+            )
+            continue
+        codigo_piso, codigo_tramo = lamina.piso, lamina.tramo
+        if (anterior := vistas.get((codigo_piso, codigo_tramo))) is not None:
+            resultado.omitidos.append(
+                f"«{ruta.name}»: {lamina.ubicacion} ya tiene la lámina «{anterior}»"
+            )
+            continue
+        vistas[codigo_piso, codigo_tramo] = ruta.name
 
         piso = sesion.scalar(
             select(Piso).where(Piso.edificio_id == edificio.id, Piso.codigo == codigo_piso)
         )
         if piso is None:
-            omitidos.append(f"{ruta.name}: el piso {codigo_piso} no existe en el sistema")
+            resultado.omitidos.append(
+                f"«{ruta.name}»: el piso {codigo_piso} no existe en el sistema"
+            )
             continue
         tramo = None
         if codigo_tramo:
@@ -107,35 +156,39 @@ def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> tuple[int
                 select(Tramo).where(Tramo.piso_id == piso.id, Tramo.codigo == codigo_tramo)
             )
             if tramo is None:
-                omitidos.append(
-                    f"{ruta.name}: el tramo {codigo_piso}-{codigo_tramo} no existe en el sistema"
+                resultado.omitidos.append(
+                    f"«{ruta.name}»: el tramo {codigo_piso}-{codigo_tramo} no existe en el sistema"
                 )
                 continue
 
-        if piso.plano_vigente(tramo) is not None:
+        sesion.refresh(piso, ["planos"])
+        tramo_id = tramo.id if tramo else None
+        versiones = [p for p in piso.planos if p.tramo_id == tramo_id]
+        contenido = ruta.read_bytes()
+        if versiones and _ya_registrada(quitar_caracteres_de_control(contenido), versiones):
             continue
 
         try:
-            contenido = sanear_svg(ruta.read_bytes())
+            contenido = sanear_svg(contenido)
             ancho, alto = dimensiones_svg(contenido)
             plano = guardar_plano(
-                sesion,
-                piso,
-                tramo,
-                ruta.name,
-                contenido,
-                ancho_px=ancho,
-                alto_px=alto,
-                nombre=f"{codigo_edificio} {codigo_piso} · "
-                + (f"Tramo {codigo_tramo[1:]}" if codigo_tramo else "Piso completo"),
+                sesion, piso, tramo, ruta.name, contenido, ancho_px=ancho, alto_px=alto
             )
         except (PlanoRechazado, ValueError) as exc:
-            omitidos.append(f"{ruta.name}: {exc}")
+            resultado.omitidos.append(f"«{ruta.name}»: {exc}")
             continue
-        cargados += 1
-        print(f"  + {plano.nombre} ({ancho}×{alto}) ← {ruta.name}")
 
-    return cargados, omitidos
+        if versiones:
+            resultado.actualizados += 1
+            print(f"  ↻ {plano.nombre}: versión nueva ({ancho}×{alto}) ← {ruta.name}")
+            sin_ubicar = trasladar_posiciones(sesion, plano, origen=OrigenCambio.SISTEMA)
+            if sin_ubicar:
+                resultado.sin_ubicar[plano.nombre] = [e.codigo for e in sin_ubicar]
+        else:
+            resultado.nuevos += 1
+            print(f"  + {plano.nombre} ({ancho}×{alto}) ← {ruta.name}")
+
+    return resultado
 
 
 def edificios_con_planos() -> list[str]:
@@ -148,7 +201,7 @@ def edificios_con_planos() -> list[str]:
 
 
 def main(argumentos: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Carga las láminas pendientes de los edificios")
+    parser = argparse.ArgumentParser(description="Carga las láminas nuevas o modificadas")
     parser.add_argument(
         "edificios", nargs="*", help="Códigos de edificio (por omisión, todos los que tienen carpeta)"
     )
@@ -160,14 +213,33 @@ def main(argumentos: list[str] | None = None) -> None:
 
     for codigo in edificios:
         with SesionLocal() as sesion:
-            cargados, omitidos = cargar(sesion, args.planos or dir_planos_de(codigo), codigo)
+            resultado = cargar(sesion, args.planos or dir_planos_de(codigo), codigo)
             sesion.commit()
-        print(f"{codigo}: planos cargados: {cargados}" + ("" if cargados else " (todos estaban al día)"))
-        if omitidos:
-            print(f"  Láminas omitidas ({len(omitidos)}):")
-            for motivo in omitidos:
+        if resultado.nuevos or resultado.actualizados:
+            print(
+                f"{codigo}: láminas nuevas: {resultado.nuevos}, "
+                f"versiones nuevas: {resultado.actualizados}"
+            )
+        else:
+            print(f"{codigo}: las láminas están al día")
+        for lamina, codigos in resultado.sin_ubicar.items():
+            cuantos = (
+                "1 elemento quedó sin ubicar"
+                if len(codigos) == 1
+                else f"{len(codigos)} elementos quedaron sin ubicar"
+            )
+            print(f"  {lamina} cambió de tamaño: {cuantos} (volver a marcarlos en el visor):")
+            for codigo_elemento in codigos:
+                print(f"    - {codigo_elemento}")
+        if resultado.omitidos:
+            print(f"  Láminas omitidas ({len(resultado.omitidos)}):")
+            for motivo in resultado.omitidos:
                 print(f"    - {motivo}")
-
+        if resultado.renombrables:
+            print(
+                "  Para renombrarlas a la nomenclatura: "
+                f"python -m app.scripts.preparar_laminas {codigo} --aplicar"
+            )
 
 if __name__ == "__main__":
     main()

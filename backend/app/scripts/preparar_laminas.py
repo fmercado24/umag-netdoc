@@ -1,11 +1,16 @@
 """Revisa y prepara las láminas SVG antes de cargarlas.
 
     python -m app.scripts.preparar_laminas ING              # solo informa
-    python -m app.scripts.preparar_laminas ING --aplicar    # limpia y orienta
+    python -m app.scripts.preparar_laminas ING --aplicar    # renombra, limpia y orienta
     python -m app.scripts.preparar_laminas --carpeta data/ing/planos --aplicar
 
-Las láminas que la DSI exporta desde PDF suelen traer dos problemas (así
-llegaron las del CADI):
+Primero revisa el **nombre**: el cargador solo acepta la nomenclatura
+``<edificio>-p<piso>[-t<tramo>].svg`` (ver ``app.servicios.planos``). Un nombre
+del que se deduce el correcto («ing 1er piso tramo 2.svg» → ``ing-p01-t2.svg``)
+se renombra; uno que no, se informa para renombrarlo a mano.
+
+Las láminas que la DSI exporta desde PDF suelen traer además dos problemas
+(así llegaron las del CADI):
 
 1. **Caracteres de control** que XML no admite: el navegador descarta la
    lámina entera. Se eliminan.
@@ -13,9 +18,10 @@ llegaron las del CADI):
    hacia abajo. Se detecta por la orientación de los textos y se gira la hoja
    para que quede horizontal y legible.
 
-Con ``--aplicar`` el original queda en ``planos/originales/`` (el cargador de
-planos no mira esa carpeta) y la versión preparada lo reemplaza. Correrlo dos
-veces no gira dos veces: el giro ya aplicado se tiene en cuenta.
+Con ``--aplicar`` el original de una lámina limpiada o girada queda en
+``planos/originales/`` (el cargador de planos no mira esa carpeta) y la
+versión preparada lo reemplaza. Correrlo dos veces no gira dos veces: el giro
+ya aplicado se tiene en cuenta.
 """
 
 from __future__ import annotations
@@ -29,8 +35,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree
 
-from app.scripts.cargar_planos import dir_planos_de
-from app.servicios.planos import RE_CONTROL_XML
+from app.scripts.cargar_planos import archivos_de_laminas, dir_planos_de
+from app.servicios.planos import (
+    RE_CONTROL_XML,
+    NombreLaminaInvalido,
+    interpretar_nombre_lamina,
+)
 
 RE_RAIZ = re.compile(rb"<svg\b[^>]*>")
 RE_TEXTO = re.compile(rb"<text\b[^>]*>")
@@ -159,17 +169,28 @@ def main(argumentos: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Revisa y prepara las láminas SVG")
     parser.add_argument("edificio", nargs="?", help="Código del edificio: usa data/<código>/planos")
     parser.add_argument("--carpeta", type=Path, help="Carpeta de las láminas, en vez del edificio")
-    parser.add_argument("--aplicar", action="store_true", help="Limpia y orienta (si no, solo informa)")
+    parser.add_argument(
+        "--aplicar", action="store_true", help="Renombra, limpia y orienta (si no, solo informa)"
+    )
     args = parser.parse_args(argumentos)
     if not args.edificio and not args.carpeta:
         parser.error("indique el código del edificio o --carpeta")
     carpeta = args.carpeta or dir_planos_de(args.edificio)
-    laminas = sorted(carpeta.glob("*.svg"))
+    edificio = args.edificio.upper() if args.edificio else None
+    laminas = [r for r in archivos_de_laminas(carpeta) if r.suffix.lower() == ".svg"]
     if not laminas:
         raise SystemExit(f"No hay láminas .svg en {carpeta}")
 
-    pendientes = 0
+    pendientes = a_mano = respaldadas = 0
     for ruta in laminas:
+        nuevo_nombre = None
+        try:
+            interpretar_nombre_lamina(ruta.name, edificio=edificio)
+        except NombreLaminaInvalido as exc:
+            nuevo_nombre = exc.sugerencia
+            if nuevo_nombre is None:
+                a_mano += 1
+                print(f"  ! {exc}: renómbrela a mano")
         try:
             contenido = ruta.read_bytes()
             preparado, diagnostico = preparar(contenido)
@@ -181,25 +202,45 @@ def main(argumentos: list[str] | None = None) -> None:
             acciones.append("limpiar")
         if diagnostico.giro:
             acciones.append("girar " + ("a la izquierda" if diagnostico.giro < 0 else "a la derecha"))
+        cambia_contenido = bool(acciones)
+        if nuevo_nombre:
+            acciones.append(f"renombrar a «{nuevo_nombre}»")
         estado = ", ".join(acciones) if acciones else "lista"
         print(f"  {ruta.name}: {diagnostico.resumen} → {estado}")
         if not acciones:
             continue
         pendientes += 1
-        if args.aplicar:
+        if not args.aplicar:
+            continue
+        if cambia_contenido:
             respaldo = carpeta / "originales" / ruta.name
             respaldo.parent.mkdir(exist_ok=True)
             if not respaldo.exists():
                 shutil.copy2(ruta, respaldo)
             ruta.write_bytes(preparado)
+            respaldadas += 1
+        if nuevo_nombre:
+            destino = ruta.with_name(nuevo_nombre)
+            if destino.exists():
+                print(f"  ! no se renombra «{ruta.name}»: ya existe «{nuevo_nombre}»")
+            else:
+                ruta.rename(destino)
+                # El rastro de descarga de Windows, si está, acompaña al archivo.
+                rastro = ruta.with_name(ruta.name + ":Zone.Identifier")
+                if rastro.exists():
+                    rastro.rename(destino.with_name(destino.name + ":Zone.Identifier"))
 
+    if a_mano:
+        print(f"{a_mano} con un nombre que hay que corregir a mano (ver los avisos con !).")
     if not pendientes:
-        print("Todas las láminas están listas para cargarse.")
+        if not a_mano:
+            print("Todas las láminas están listas para cargarse.")
     elif args.aplicar:
-        print(f"Preparadas {pendientes}. Los originales quedaron en {carpeta / 'originales'}.")
+        print(f"Preparadas {pendientes}.")
+        if respaldadas:
+            print(f"Los originales de las limpiadas o giradas quedaron en {carpeta / 'originales'}.")
     else:
         print(f"{pendientes} por preparar. Para hacerlo: --aplicar")
-
 
 if __name__ == "__main__":
     main()

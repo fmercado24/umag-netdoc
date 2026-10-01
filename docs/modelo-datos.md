@@ -199,6 +199,16 @@ lámina, el backend rechaza ubicar un elemento sobre otra lámina, y la ficha de
 visor permite cambiarla; al hacerlo se borra la posición anterior, que era
 sobre la otra lámina.
 
+### Versiones de una lámina
+
+Una lámina nueva para un piso–tramo que ya tiene plano no reemplaza el
+registro: se agrega un `plano` vigente y el anterior queda con
+`vigente = false`, con su archivo. Las posiciones pasan a la versión nueva solo
+si `ancho_px` × `alto_px` no cambió. Si cambió, las coordenadas no tienen
+equivalente seguro en el dibujo nuevo y el elemento queda sin ubicar, con su
+posición anterior en `historial_elemento` (origen `sistema` si lo hizo
+`cargar_planos`, `manual` si fue una carga por la API).
+
 **Grupos de puntos de datos.** Los puntos de datos con exactamente la misma
 posición forman un grupo: un solo marcador con cuántos son y una sola fila en
 el listado. Al ubicar un punto de datos, un clic sobre otro ya ubicado toma su

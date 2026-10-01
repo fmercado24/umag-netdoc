@@ -241,23 +241,50 @@ pdftocairo -svg -f 3 -l 3 planos-ing.pdf data/ing/planos/ing-p01-t1.svg   # pág
 
 También sirve Inkscape (*Abrir el PDF → Guardar como → SVG plano*).
 
-**Nombres:** `ing-p01-t1.svg` (piso 1, tramo 1), `ing-p02.svg` (piso 2
-completo), `ing-p00.svg` (subterráneo). También se reconocen nombres como
-«ing 1er piso tramo 1.svg», que es como llegaron los del CADI.
+**Nombres (obligatorio).** El sistema sabe a qué edificio, piso y tramo va
+cada lámina **solo por su nombre**, así que debe seguir la nomenclatura de las
+planillas:
 
-**Preparar.** Las láminas exportadas desde PDF suelen traer caracteres que el
-navegador rechaza y, a veces, el dibujo girado dentro de una hoja vertical.
-Revíselas:
+```
+<edificio>-p<piso>[-t<tramo>].svg
+```
+
+| Lámina | Nombre |
+|---|---|
+| Piso 1, tramo 1 del ING | `ing-p01-t1.svg` |
+| Piso 2 completo (no se divide en tramos) | `ing-p02.svg` |
+| Subterráneo | `ing-p00.svg` |
+| Piso 10, tramo 3 | `ing-p10-t3.svg` |
+
+- El edificio es su código del catálogo (sección 1) y debe ser el de la
+  carpeta: `ing-p01.svg` dentro de `data/cadi/planos/` se rechaza.
+- El piso va con **dos dígitos** (`p01`, no `p1`), como en los códigos del SOP.
+  El tramo va sin ceros (`t1`, no `t01`).
+- Da igual escribirlo en mayúsculas o minúsculas. No lleva espacios, fechas
+  ni versiones: una versión nueva reemplaza al archivo con el mismo nombre
+  (sección 11).
+- Solo se cargan archivos `.svg`. Cualquier otro archivo de la carpeta se
+  informa como omitido.
+
+Si las láminas llegaron con otros nombres («ing 1er piso tramo 1.svg»,
+«ING_P1_T01.svg»), el paso siguiente las renombra solo cuando el nombre
+correcto se puede deducir; las demás se informan para renombrarlas a mano.
+
+**Preparar.** Además del nombre, las láminas exportadas desde PDF suelen traer
+caracteres que el navegador rechaza y, a veces, el dibujo girado dentro de una
+hoja vertical. Revíselas:
 
 ```bash
 cd backend
 .venv/bin/python -m app.scripts.preparar_laminas ING
-#   ing-p01-t1.svg: 4768×6740, texto girado a la derecha (1103 de 1122), 120 caracteres inválidos → limpiar, girar a la izquierda
+#   ing 1er piso tramo 1.svg: 4768×6740, texto girado a la derecha (1103 de 1122), 120 caracteres inválidos → limpiar, girar a la izquierda, renombrar a «ing-p01-t1.svg»
 #   ing-p02.svg: 6740×4768, texto horizontal (969 de 1052), 0 caracteres inválidos → lista
+#   ! «leyenda.svg» no sigue la nomenclatura …: renómbrela a mano
 .venv/bin/python -m app.scripts.preparar_laminas ING --aplicar
 ```
 
-`--aplicar` deja los originales en `data/ing/planos/originales/`. Si el
+`--aplicar` renombra, limpia y endereza. Los originales de las láminas
+limpiadas o giradas quedan en `data/ing/planos/originales/`. Si el
 resultado no le convence, copie el original de vuelta. Ábralas en el navegador
 (arrastrando el archivo) para confirmar que se ven horizontales y legibles.
 
@@ -319,7 +346,8 @@ sección 11 para sumar tramos después). Luego cargue planos y fotos:
 ```
 
 O, en vez de los tres comandos, `./iniciar.sh`: importa los edificios
-nuevos, carga los planos y fotos pendientes de todos y levanta el sistema.
+nuevos, carga las fotos pendientes y los planos nuevos o modificados de todos,
+y levanta el sistema.
 
 ## 8. Ubicar racks y puntos de datos en el visor
 
@@ -380,7 +408,7 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | Se levantó un tramo más (o más puntos de datos) | Deje la planilla nueva en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila |
 | Un dato está mal | Corríjalo en el visor con **Editar**: queda en el historial. No reimporte |
 | Se retiró un equipo | `http://localhost:8000/docs` → `DELETE /api/v1/elementos/{código}` (baja lógica: el código no se reutiliza) |
-| Hay una versión nueva de una lámina | Súbala con `POST /api/v1/edificios/ING/pisos/P01/plano` (ver [README](../README.md#cargar-el-plano-de-un-piso)). Las posiciones se mantienen si la lámina conserva tamaño y orientación |
+| Hay una versión nueva de una lámina | Reemplace el archivo en `data/ing/planos/` (mismo nombre, pasado por `preparar_laminas`) y ejecute `cargar_planos ING` o `./iniciar.sh`: entra como versión nueva y la anterior queda como histórica. Si la lámina conserva su tamaño, las posiciones se mantienen. Si no, el dibujo es otro y los elementos ubicados en ella **quedan sin ubicar**: el comando los lista para volver a marcarlos, y las coordenadas anteriores quedan en su historial |
 | Las planillas estaban muy mal y aún no se ubicó nada | `importar_edificio ING --recargar` reemplaza todo lo importado. **Se pierden las posiciones y el historial** de esos elementos |
 
 ## 12. Problemas frecuentes
@@ -391,6 +419,9 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | `No existe la carpeta de planillas data/xxx` | La carpeta no se llama como el código en minúsculas | Renómbrela |
 | `XXX ya tiene N elementos importados` | Se intentó importar de nuevo | Use `--agregar` (sección 11) |
 | El edificio aparece sin pisos en el visor | La página se abrió antes de importar | Recargue la página |
+| `«…» no sigue la nomenclatura …` al cargar planos | El nombre no dice edificio, piso y tramo (sección 4) | `preparar_laminas ING --aplicar` lo renombra si el aviso trae `renómbrela «…»`; si no, renómbrelo a mano |
+| `«…» es una lámina del edificio XXX, no de ING` | La lámina está en la carpeta de otro edificio, o el prefijo está mal | Muévala a `data/xxx/planos/` o corrija el prefijo |
+| `… ya tiene la lámina «…»` | Dos archivos para el mismo piso–tramo (por ejemplo, `ING-P01.svg` y `ing-p01.svg`) | Deje uno solo |
 | La lámina se ve rota o en blanco | Caracteres inválidos o no es SVG válido | `preparar_laminas ING --aplicar` |
 | El plano se ve de lado | Dibujo girado dentro de la hoja | `preparar_laminas ING --aplicar` |
 | `el piso P0X no existe en el sistema` al cargar planos | Hay lámina pero ningún elemento en ese piso (los pisos se crean al importar) | Importe ese piso, o créelo en `http://localhost:8000/docs` → `POST /api/v1/edificios/ING/pisos` y vuelva a cargar los planos |

@@ -11,7 +11,7 @@ ejemplo antes de importar.
 | `codigo-puntos-de-datos.csv` | No | Un punto de datos por fila |
 | `codigo-vlans.csv` | No | Leyenda de VLANs y la VLAN de cada servicio |
 | `codigo-laminas.csv` | No | Solo si hay elementos dibujados en la lámina de otro tramo |
-| `planos/` | No | Láminas SVG: `codigo-p01-t1.svg`, `codigo-p02.svg`… |
+| `planos/` | No | Láminas SVG con nombre obligatorio `codigo-p<piso>[-t<tramo>].svg`: `codigo-p01-t1.svg`, `codigo-p02.svg` (piso completo), `codigo-p00.svg` (subterráneo) |
 | `fotos/` | No | Fotografías con el código del elemento: `ING-SW01-P01-T1.jpg` |
 
 El detalle de cada columna y el procedimiento completo están en

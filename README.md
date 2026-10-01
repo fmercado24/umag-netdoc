@@ -42,7 +42,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           94 pruebas (pytest)
+│   └── tests/           108 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -62,7 +62,7 @@ umag-netdoc/
 | `cadi-global.csv` | Consolidado histórico. **No se importa**: se usa solo para contrastar y reportar diferencias |
 | `cadi-vlans.csv` | Leyenda de VLANs del edificio y la VLAN por omisión de cada servicio |
 | `cadi-laminas.csv` | Lo rotulado P01-T3 que está dibujado en otra lámina (ver hallazgo 8) |
-| `planos/*.svg` (9) | Láminas de la DSI, una por tramo en los pisos 1 a 3. Venían en vertical con el dibujo girado; están giradas a horizontal (6740×4768) y sin los caracteres de control de la exportación desde PDF. Se cargan con el endpoint de planos, que las copia a `backend/media/planos/` |
+| `planos/*.svg` (9) | Láminas de cableado estructurado de la DSI, exportadas desde CAD (2853,6×2018,4): una por tramo en los pisos 1 a 3, una para el piso 4 y otra para el subterráneo. Se llaman según la nomenclatura obligatoria (`cadi-p01-t1.svg`, `cadi-p04.svg`, `cadi-p00.svg`) y `./iniciar.sh` las carga en `backend/media/planos/` |
 
 El importador deja un informe de discrepancias en cada ejecución. Los
 hallazgos están analizados en [docs/hallazgos-cadi.md](docs/hallazgos-cadi.md):
@@ -85,9 +85,11 @@ La primera vez crea el entorno de Python, instala las dependencias de ambos
 lados, crea la base con el catálogo, importa cada edificio que tenga carpeta en
 `data/` (hoy el CADI) y carga sus láminas y fotografías. Las siguientes veces
 aplica las migraciones pendientes, solo reinstala si cambiaron
-`requirements*.txt` o `package-lock.json`, importa los edificios **nuevos** y
-carga las láminas y fotos nuevas: nunca reimporta ni reemplaza datos
-existentes. Con `NETDOC_API_HOST=0.0.0.0` la API escucha en la red (necesario
+`requirements*.txt` o `package-lock.json`, importa los edificios **nuevos**,
+carga las fotos nuevas y revisa todas las láminas: una nueva o modificada en
+`data/<código>/planos` entra como versión nueva (ver
+[Cargar el plano de un piso](#cargar-el-plano-de-un-piso)). Nunca reimporta
+elementos ni reemplaza sus datos. Con `NETDOC_API_HOST=0.0.0.0` la API escucha en la red (necesario
 para el [monitoreo](docs/manual-monitoreo.md)). Deja el visor en
 <http://localhost:5173> y la API en <http://localhost:8000>; **Ctrl+C** detiene
 ambos, y si uno de los dos se cae el script cierra el otro.
@@ -166,14 +168,30 @@ archivo se reemplace por una versión reescalada.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/edificios/CADI/pisos/P01/plano \
-  -F "archivo=@plano-cadi-piso1.svg" \
+  -F "archivo=@cadi-p01.svg" \
   -F "ancho_px=2000" -F "alto_px=1400" \
   -F "nombre=CADI Piso 1"
 ```
 
-Si la lámina cubre un solo tramo, se agrega `-F "tramo=T2"`. Cada tramo tiene
+El nombre del archivo debe seguir la nomenclatura de las láminas,
+`<edificio>-p<piso>[-t<tramo>].<ext>` (ver la
+[guía, sección 4](docs/guia-nuevo-edificio.md#4-láminas-planos)), y
+corresponder al destino. Si no, la API responde 422 indicando el nombre que
+corresponde. Si la lámina cubre un solo tramo, se agrega `-F "tramo=T2"` y el
+archivo se llama `cadi-p01-t2.svg`. Cada tramo tiene
 su propio plano vigente y el visor ofrece elegirlo en la barra superior; un
 tramo sin lámina propia se ve sobre el plano del piso completo.
+
+Lo habitual es no usar la API, sino dejar las láminas en
+`data/<código>/planos/`: `./iniciar.sh` (o `app.scripts.cargar_planos`) deduce
+edificio, piso y tramo del nombre, compara cada archivo con las versiones
+registradas y carga los nuevos y los modificados. Los archivos con un nombre
+fuera de la nomenclatura se informan y no se cargan. Al cambiar una lámina, la anterior queda como versión histórica y
+los elementos ubicados sobre ella pasan a la nueva **si el tamaño es el mismo**.
+Si cambió, el dibujo es otro (otro encuadre u otra escala) y no hay forma
+segura de trasladar las posiciones: esos elementos quedan sin ubicar, el
+comando los lista y las coordenadas anteriores quedan en su historial. La
+carga por la API sigue la misma regla.
 
 La vista de un tramo muestra lo dibujado en su lámina, que no siempre coincide
 con el tramo del código: en el Piso 1, lo rotulado T3 salvo el auditorio está
@@ -285,7 +303,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 94 pruebas en verde.
+- Backend completo y verificado: 108 pruebas en verde.
 - 361 elementos del CADI importados desde las planillas por tramo y de puntos
   de datos: 69 equipos (2 racks inferidos), 292 puntos de datos,
   295 enlaces y 4 VLANs. Completitud promedio 46,9 %.

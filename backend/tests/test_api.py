@@ -164,7 +164,7 @@ def test_plano_svg_se_sanea_antes_de_guardarse(cliente):
     _crear_piso(cliente, "P05")
     respuesta = cliente.post(
         f"{API}/edificios/CADI/pisos/P05/plano",
-        files={"archivo": ("plano.svg", svg, "image/svg+xml")},
+        files={"archivo": ("cadi-p05.svg", svg, "image/svg+xml")},
         data={"ancho_px": "100", "alto_px": "50"},
     )
     assert respuesta.status_code == 201, respuesta.text
@@ -179,7 +179,7 @@ def test_nuevo_plano_no_sobrescribe_el_archivo_del_historico(cliente):
     archivos = [
         cliente.post(
             f"{API}/edificios/CADI/pisos/P06/plano",
-            files={"archivo": ("plano.png", contenido, "image/png")},
+            files={"archivo": ("cadi-p06.png", contenido, "image/png")},
             data={"ancho_px": "100", "alto_px": "50"},
         ).json()["archivo"]
         for contenido in (b"version-1", b"version-2")
@@ -188,25 +188,26 @@ def test_nuevo_plano_no_sobrescribe_el_archivo_del_historico(cliente):
     assert cliente.get(f"/media/{archivos[0]}").content == b"version-1"
 
 
-def test_nuevo_plano_no_pisa_un_archivo_existente_aunque_falten_versiones(cliente):
+def test_nuevo_plano_no_repite_un_numero_de_version_existente(cliente):
     # Tras borrar versiones antiguas, el conteo de planos repite el número de
-    # la versión vigente; su archivo no debe sobrescribirse.
+    # una versión que sigue en disco: la nueva va después de la mayor.
     from app.core.config import configuracion
 
     _crear_piso(cliente, "P11")
-    ocupado = configuracion.dir_planos / "CADI-P11-v1-plano.png"
+    ocupado = configuracion.dir_planos / "CADI-P11-v3-cadi_11vo_piso.png"
     ocupado.write_bytes(b"version-vigente")
 
     archivo = _cargar_plano(cliente, "P11")["archivo"]
-    assert archivo == "planos/CADI-P11-v2-plano.png"
+    assert archivo == "planos/CADI-P11-v4.png"
     assert ocupado.read_bytes() == b"version-vigente"
+    assert _cargar_plano(cliente, "P11", contenido=b"otra")["archivo"] == "planos/CADI-P11-v5.png"
 
 
 def test_plano_svg_mal_formado_es_rechazado(cliente):
     _crear_piso(cliente, "P05")
     respuesta = cliente.post(
         f"{API}/edificios/CADI/pisos/P05/plano",
-        files={"archivo": ("plano.svg", b"<svg><g></svg>", "image/svg+xml")},
+        files={"archivo": ("cadi-p05.svg", b"<svg><g></svg>", "image/svg+xml")},
         data={"ancho_px": "100", "alto_px": "50"},
     )
     assert respuesta.status_code == 422
@@ -216,13 +217,39 @@ def _cargar_plano(cliente, codigo_piso, tramo=None, contenido=b"lamina"):
     datos = {"ancho_px": "100", "alto_px": "50"}
     if tramo:
         datos["tramo"] = tramo
+    nombre = f"cadi-{codigo_piso}" + (f"-{tramo}" if tramo else "") + ".png"
     respuesta = cliente.post(
         f"{API}/edificios/CADI/pisos/{codigo_piso}/plano",
-        files={"archivo": ("plano.png", contenido, "image/png")},
+        files={"archivo": (nombre.lower(), contenido, "image/png")},
         data=datos,
     )
     assert respuesta.status_code == 201, respuesta.text
     return respuesta.json()
+
+
+def test_plano_exige_la_nomenclatura_y_que_corresponda_al_destino(cliente):
+    _crear_piso_con_dos_tramos(cliente, "P27")
+
+    def subir(nombre, tramo="T1"):
+        return cliente.post(
+            f"{API}/edificios/CADI/pisos/P27/plano",
+            files={"archivo": (nombre, b"x", "image/png")},
+            data={"ancho_px": "100", "alto_px": "50", "tramo": tramo},
+        )
+
+    fuera = subir("planta 27 piso tramo 1.png")
+    assert fuera.status_code == 422
+    assert "renómbrela «cadi-p27-t1.png»" in fuera.json()["detail"]
+    otro_tramo = subir("cadi-p27-t2.png")
+    assert otro_tramo.status_code == 422
+    assert otro_tramo.json()["detail"] == (
+        "«cadi-p27-t2.png» es la lámina de CADI P27-T2, no de CADI P27-T1"
+    )
+    assert subir("ing-p27-t1.png").status_code == 422
+
+    aceptado = subir("CADI-P27-T1.PNG")
+    assert aceptado.status_code == 201, aceptado.text
+    assert aceptado.json()["nombre"] == "CADI P27 · Tramo 1"
 
 
 def _crear_piso_con_dos_tramos(cliente, codigo_piso):

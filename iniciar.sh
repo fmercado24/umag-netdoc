@@ -8,7 +8,8 @@
 # La primera vez crea el entorno de Python, instala las dependencias, crea la
 # base con el catálogo e importa cada edificio de data/<código>/ con sus
 # láminas y fotos. Las siguientes aplica las migraciones, instala lo que cambió
-# e importa solo lo nuevo: nunca reemplaza datos existentes. Ctrl+C detiene todo.
+# e importa solo lo nuevo. Las láminas se revisan todas: una modificada en
+# data/<código>/planos entra como versión nueva. Ctrl+C detiene todo.
 
 set -euo pipefail
 
@@ -30,7 +31,7 @@ for argumento in "$@"; do
   case "$argumento" in
     --sin-navegador) ABRIR_NAVEGADOR=0 ;;
     -h | --help)
-      sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -128,7 +129,10 @@ paso "Preparando la base de datos"
 paso "Importando los edificios nuevos"
 "$PY" -m app.scripts.importar_edificio --pendientes | sangrar
 
-paso "Cargando los planos"
+# Compara cada lámina de data/<código>/planos con las versiones registradas:
+# carga las nuevas y las modificadas. Si una cambió de tamaño, los elementos
+# ubicados sobre ella quedan sin ubicar y se listan aquí.
+paso "Revisando los planos (nuevos y modificados)"
 "$PY" -m app.scripts.cargar_planos | sangrar
 
 paso "Cargando las fotografías"
