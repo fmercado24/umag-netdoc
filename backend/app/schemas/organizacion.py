@@ -62,6 +62,20 @@ class PlanoLeer(BaseModel):
         return self
 
 
+class RecintoLeer(BaseModel):
+    """Sala de una lámina, con el punto donde se ubican sus elementos."""
+
+    model_config = BASE
+
+    numero: str
+    nombre: str | None = None
+    plano_id: int
+    #: Tramo de la lámina donde está; nulo si la lámina cubre el piso completo.
+    tramo_codigo: str | None = None
+    pos_x: float
+    pos_y: float
+
+
 class TramoLeer(BaseModel):
     model_config = BASE
 

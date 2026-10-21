@@ -80,6 +80,9 @@ class Elemento(Base, MixinTiempos):
         ForeignKey("tramo.id", ondelete="SET NULL")
     )
     ubicacion_descriptiva: Mapped[str | None] = mapped_column(String(200))
+    #: Número de la sala donde está, como lo rotulan los planos ("1083",
+    #: "0017"). Con él se ubica solo sobre la lámina: ver ``app.servicios.recintos``.
+    numero_recinto: Mapped[str | None] = mapped_column(String(20), index=True)
 
     #: Elemento contenedor (típicamente el rack). Permite anidar equipos en
     #: una misma coordenada del plano, según SOP sección 10.3 punto 20.

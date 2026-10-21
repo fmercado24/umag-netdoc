@@ -14,6 +14,7 @@ from fastapi import (
 from sqlalchemy import select
 
 from app.api.deps import SesionBD, obtener_edificio, obtener_piso, obtener_tramo
+from app.core.config import DIR_PROYECTO
 from app.models import Edificio, OrigenCambio, Piso, Tramo
 from app.schemas.organizacion import (
     EdificioCrear,
@@ -22,6 +23,7 @@ from app.schemas.organizacion import (
     PisoCrear,
     PisoLeer,
     PlanoLeer,
+    RecintoLeer,
     TramoCrear,
     TramoLeer,
 )
@@ -32,6 +34,7 @@ from app.servicios.planos import (
     guardar_plano,
     trasladar_posiciones,
 )
+from app.servicios.recintos import recintos_del_piso, sincronizar_y_ubicar
 from app.servicios.teselas import asegurar_teselas
 
 router = APIRouter(prefix="/edificios", tags=["edificios"])
@@ -124,6 +127,14 @@ def obtener_plano(codigo: str, codigo_piso: str, sesion: SesionBD, tramo: str | 
     return plano
 
 
+@router.get("/{codigo}/pisos/{codigo_piso}/recintos", response_model=list[RecintoLeer])
+def listar_recintos(codigo: str, codigo_piso: str, sesion: SesionBD):
+    """Los recintos de las láminas vigentes del piso: número, nombre y el punto
+    donde se ubican sus elementos (ver ``app.servicios.recintos``)."""
+    piso = obtener_piso(sesion, obtener_edificio(sesion, codigo), codigo_piso)
+    return sorted(recintos_del_piso(piso), key=lambda r: (r.numero, r.tramo_codigo or ""))
+
+
 @router.post(
     "/{codigo}/pisos/{codigo_piso}/plano",
     response_model=PlanoLeer,
@@ -185,5 +196,10 @@ def cargar_plano(
     except (SvgInvalido, NombreLaminaInvalido) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     trasladar_posiciones(sesion, plano, origen=OrigenCambio.MANUAL)
+    # Si <edificio>-recintos.csv se leyó de esta misma lámina, sus recintos se
+    # cargan y lo que no está en el plano se ubica en ellos.
+    sesion.flush()
+    sesion.expire(piso, ["planos"])
+    sincronizar_y_ubicar(sesion, edificio, DIR_PROYECTO / "data" / edificio.codigo.lower())
     tareas.add_task(asegurar_teselas, plano.archivo, plano.ancho_px)
     return plano

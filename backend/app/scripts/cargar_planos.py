@@ -24,6 +24,12 @@ piso–tramo, así que el script puede correrse cada vez que se inicia el sistem
   anteriores quedan en su historial) y el script los lista para volver a
   marcarlos en el visor.
 
+Luego se cargan los recintos de ``<código>-recintos.csv`` (los números de
+sala que ``app.scripts.extraer_recintos`` leyó de cada lámina) y cada elemento
+que aún no está en el plano se ubica en su recinto: el número de sala que trae
+su ubicación (ver ``app.servicios.recintos``). Lo que ya tiene posición no se
+toca, y lo que no se pudo ubicar se lista.
+
 Después se generan las teselas de cada plano vigente que aún no las tiene
 (ver ``app.servicios.teselas``): es lo que el visor muestra para moverse con
 fluidez. Toma unos segundos por lámina y se hace una sola vez por versión.
@@ -48,7 +54,7 @@ from sqlalchemy.orm import Session
 from app.core.config import configuracion
 from app.db.session import SesionLocal
 from app.models import Edificio, OrigenCambio, Piso, Plano, Tramo
-from app.scripts.importar_edificio import DIR_DATA
+from app.scripts.importar_edificio import DIR_DATA, ubicar_en_recintos
 from app.servicios.planos import (
     NombreLaminaInvalido,
     PlanoRechazado,
@@ -246,8 +252,9 @@ def main(argumentos: list[str] | None = None) -> None:
         parser.error("--planos se usa con un solo edificio")
 
     for codigo in edificios:
+        dir_planos = args.planos or dir_planos_de(codigo)
         with SesionLocal() as sesion:
-            resultado = cargar(sesion, args.planos or dir_planos_de(codigo), codigo)
+            resultado = cargar(sesion, dir_planos, codigo)
             sesion.commit()
         if resultado.nuevos or resultado.actualizados:
             print(
@@ -274,6 +281,9 @@ def main(argumentos: list[str] | None = None) -> None:
                 "  Para renombrarlas a la nomenclatura: "
                 f"python -m app.scripts.preparar_laminas {codigo} --aplicar"
             )
+        # <código>-recintos.csv va junto a las planillas, en la carpeta que
+        # contiene la de las láminas.
+        ubicar_en_recintos(codigo, dir_planos.parent)
         generar_teselas_pendientes(codigo)
 
 

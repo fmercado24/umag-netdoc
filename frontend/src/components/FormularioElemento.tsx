@@ -18,6 +18,7 @@ import type {
   ElementoDetalle,
   Enumeraciones,
   OpcionEnum,
+  Recinto,
 } from '../types'
 
 type CampoBase =
@@ -26,6 +27,7 @@ type CampoBase =
   | 'estado_condicion'
   | 'criticidad'
   | 'ubicacion_descriptiva'
+  | 'numero_recinto'
   | 'padre_codigo'
   | 'unidad_rack'
   | 'marca'
@@ -43,6 +45,7 @@ const CAMPOS_BASE: CampoBase[] = [
   'estado_condicion',
   'criticidad',
   'ubicacion_descriptiva',
+  'numero_recinto',
   'padre_codigo',
   'unidad_rack',
   'marca',
@@ -174,6 +177,7 @@ export function FormularioElemento({
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [racks, setRacks] = useState<Elemento[]>([])
+  const [recintos, setRecintos] = useState<Recinto[]>([])
 
   const admiteRack = !SIN_RACK.has(detalle.tipo_codigo)
   useEffect(() => {
@@ -187,6 +191,18 @@ export function FormularioElemento({
       vigente = false
     }
   }, [admiteRack, detalle.edificio_codigo, detalle.piso_codigo])
+
+  // Los recintos de las láminas del piso, para elegir el número sin errores.
+  useEffect(() => {
+    let vigente = true
+    api
+      .recintos(detalle.edificio_codigo, detalle.piso_codigo)
+      .then((lista) => vigente && setRecintos(lista))
+      .catch(() => vigente && setRecintos([]))
+    return () => {
+      vigente = false
+    }
+  }, [detalle.edificio_codigo, detalle.piso_codigo])
 
   const cambiarBase = (campo: CampoBase, valor: string) =>
     setBase((b) => ({ ...b, [campo]: valor }))
@@ -414,6 +430,30 @@ export function FormularioElemento({
 
       <h3 className="subtitulo">Ubicación</h3>
       {texto('ubicacion_descriptiva', 'Ubicación (recinto)')}
+      {campo(
+        'numero_recinto',
+        'N° de recinto',
+        <>
+          <input
+            type="text"
+            inputMode="decimal"
+            list={`recintos-${detalle.id}`}
+            value={base.numero_recinto}
+            placeholder="Ej.: 1083"
+            onChange={(e) => cambiarBase('numero_recinto', e.target.value)}
+          />
+          <datalist id={`recintos-${detalle.id}`}>
+            {recintos.map((r) => (
+              <option key={`${r.plano_id}-${r.numero}`} value={r.numero}>
+                {r.nombre ?? ''}
+              </option>
+            ))}
+          </datalist>
+        </>,
+        detalle.montado
+          ? 'Montado en su rack: se ve donde esté el rack.'
+          : 'El número de la sala en el plano. Al guardar, el elemento se ubica en ese recinto.',
+      )}
       {admiteRack &&
         campo(
           'padre_codigo',

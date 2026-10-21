@@ -59,7 +59,7 @@ from app.schemas.elemento import (
     RespuestaMapa,
 )
 from app.schemas.logico import VlanAsignar
-from app.schemas.organizacion import PlanoLeer
+from app.schemas.organizacion import PlanoLeer, RecintoLeer
 from app.servicios.codigos import (
     CodigoInvalido,
     construir_codigo,
@@ -68,6 +68,15 @@ from app.servicios.codigos import (
 )
 from app.servicios.fotografias import FormatoFotoNoAdmitido, guardar_fotografia
 from app.servicios.historial import registrar_alta, registrar_cambios
+from app.servicios.recintos import (
+    buscar_recinto,
+    corresponde_al_piso,
+    normalizar_numero,
+    numero_de_recinto,
+    prefijo_de_piso,
+    ubicar_en_recinto,
+    ubicar_pendientes,
+)
 from app.servicios.validacion import (
     AtributosInvalidos,
     evaluar_completitud,
@@ -160,6 +169,38 @@ def _exigir_marcador_propio(elemento: Elemento) -> None:
         )
 
 
+def _error_de_campo(campo: str, mensaje: str) -> HTTPException:
+    """422 con la forma de los errores de Pydantic, para que el visor lo
+    muestre junto al campo."""
+    return HTTPException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        [{"loc": ["body", campo], "msg": mensaje, "type": "value_error"}],
+    )
+
+
+def _validar_numero_recinto(valor: str | None, codigo_piso: str) -> str | None:
+    """El número de recinto como se guarda, o None si se dejó vacío.
+
+    Debe ser del piso del elemento: los recintos del subterráneo empiezan con
+    00, los del primer piso con 1, los del segundo con 2…
+    """
+    if valor is None or not valor.strip():
+        return None
+    numero = normalizar_numero(valor)
+    if numero is None:
+        raise _error_de_campo(
+            "numero_recinto", "debe ser el número de la sala en el plano, como 1083 o 1083.2"
+        )
+    if not corresponde_al_piso(numero, codigo_piso):
+        prefijo = prefijo_de_piso(codigo_piso)
+        raise _error_de_campo(
+            "numero_recinto",
+            f"no es un recinto del piso {codigo_piso}"
+            + (f": sus números empiezan con {prefijo}" if prefijo else ""),
+        )
+    return numero
+
+
 def _cambios_de_lamina(sesion, elemento: Elemento, codigo_tramo: str | None) -> dict:
     """Cambia la lámina donde se dibuja el elemento.
 
@@ -219,6 +260,7 @@ def _armar_hijo(hijo: Elemento) -> dict:
 
 def _armar_detalle(elemento: Elemento) -> ElementoDetalle:
     completitud = evaluar_completitud(elemento)
+    recinto = buscar_recinto(elemento)
     datos = ElementoLeer.model_validate(elemento).model_dump()
     datos.update(
         {
@@ -247,6 +289,7 @@ def _armar_detalle(elemento: Elemento) -> ElementoDetalle:
                 completo=completitud.completo,
                 faltantes=completitud.faltantes,
             ),
+            "recinto_en_plano": RecintoLeer.model_validate(recinto) if recinto else None,
             "creado_en": elemento.creado_en,
             "actualizado_en": elemento.actualizado_en,
         }
@@ -471,6 +514,11 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
     except AtributosInvalidos as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.errores) from exc
 
+    # Sin número explícito, el que trae la ubicación («Oficina 1083»).
+    numero_recinto = _validar_numero_recinto(datos.numero_recinto, piso.codigo) or (
+        numero_de_recinto(datos.ubicacion_descriptiva, piso.codigo)
+    )
+
     elemento = Elemento(
         codigo=codigo,
         correlativo=correlativo,
@@ -480,13 +528,27 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
         tramo_id=tramo.id if tramo else None,
         padre_id=padre.id if padre else None,
         atributos=atributos,
+        numero_recinto=numero_recinto,
         **datos.model_dump(
-            exclude={"codigo", "tipo", "edificio", "piso", "tramo", "padre_codigo", "atributos"}
+            exclude={
+                "codigo",
+                "tipo",
+                "edificio",
+                "piso",
+                "tramo",
+                "padre_codigo",
+                "atributos",
+                "numero_recinto",
+            }
         ),
     )
     sesion.add(elemento)
     sesion.flush()
     registrar_alta(sesion, elemento, usuario=usuario)
+    # Con su recinto en las láminas, aparece ya ubicado en el plano.
+    if not elemento.tiene_coordenadas and numero_recinto:
+        sesion.refresh(elemento)
+        ubicar_en_recinto(sesion, elemento, origen=OrigenCambio.MANUAL, usuario=usuario)
     sesion.flush()
     return _armar_detalle(elemento)
 
@@ -507,6 +569,22 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
         _exigir_marcador_propio(elemento)
 
     cambios: dict = {}
+    # Al cambiar el número de recinto, el elemento pasa a ese recinto.
+    reubicar = False
+    if "numero_recinto" in entrada:
+        numero = _validar_numero_recinto(entrada.pop("numero_recinto"), elemento.piso.codigo)
+        cambios["numero_recinto"] = numero
+        reubicar = numero is not None and numero != elemento.numero_recinto
+    elif entrada.get("ubicacion_descriptiva"):
+        # Una ubicación que trae su número también sirve («Sala Eléctrica
+        # 2045»), salvo que el número se haya escrito aparte: ese manda.
+        codigo_piso = elemento.piso.codigo
+        anterior = numero_de_recinto(elemento.ubicacion_descriptiva, codigo_piso)
+        numero = numero_de_recinto(entrada["ubicacion_descriptiva"], codigo_piso)
+        sigue_al_texto = elemento.numero_recinto in (None, anterior)
+        if numero and numero != elemento.numero_recinto and sigue_al_texto:
+            cambios["numero_recinto"] = numero
+            reubicar = True
 
     if "tramo" in entrada:
         tramo = obtener_tramo(sesion, elemento.piso, entrada.pop("tramo"))
@@ -569,6 +647,15 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
     # Los cambios se aplican sobre las columnas *_id; sin esto las relaciones
     # ya cargadas (tramo, lámina, contenedor) responderían con el valor anterior.
     sesion.expire(elemento)
+    # Si el recinto no aparece en las láminas, conserva su posición: la ficha
+    # avisa que hay que ubicarlo a mano.
+    posicion_explicita = any(c in entrada for c in ("plano_id", "pos_x", "pos_y"))
+    if reubicar and not posicion_explicita:
+        ubicar_en_recinto(
+            sesion, elemento, origen=OrigenCambio.MANUAL, usuario=datos.usuario
+        )
+        sesion.flush()
+        sesion.expire(elemento)
     return _armar_detalle(elemento)
 
 
@@ -604,6 +691,35 @@ def actualizar_posicion(id_o_codigo: str, datos: PosicionActualizar, sesion: Ses
         comentario="Georreferenciación sobre el plano",
     )
     sesion.flush()
+    # Lo que espera en la misma sala sin número en la lámina (el AP y la UPS
+    # de una sala eléctrica) queda ahora junto a él.
+    ubicar_pendientes(sesion, elemento.edificio)
+    return _armar_detalle(elemento)
+
+
+@router.post("/{id_o_codigo}/ubicar-en-recinto", response_model=ElementoDetalle)
+def ubicar_en_su_recinto(id_o_codigo: str, sesion: SesionBD, usuario: str | None = None):
+    """Lleva el elemento a su recinto: el de su número, en las láminas del piso.
+
+    Sirve para devolverlo a su lugar después de moverlo a mano. Los puntos de
+    datos quedan en el mismo punto que los demás de la sala (el visor los
+    agrupa); los equipos, junto a los que ya están ahí.
+    """
+    elemento = obtener_elemento(sesion, id_o_codigo)
+    _exigir_marcador_propio(elemento)
+    if not elemento.numero_recinto:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"'{elemento.codigo}' no tiene número de recinto"
+        )
+    if ubicar_en_recinto(sesion, elemento, origen=OrigenCambio.MANUAL, usuario=usuario) is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"El recinto {elemento.numero_recinto} no aparece en las láminas del piso "
+            f"{elemento.piso.codigo}",
+        )
+    ubicar_pendientes(sesion, elemento.edificio)
+    sesion.flush()
+    sesion.expire(elemento)
     return _armar_detalle(elemento)
 
 

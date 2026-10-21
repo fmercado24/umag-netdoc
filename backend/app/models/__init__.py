@@ -23,7 +23,7 @@ from app.models.enums import (
 )
 from app.models.integracion import IdentificadorExterno
 from app.models.logico import ElementoVlan, Enlace, Vlan
-from app.models.organizacion import Edificio, Persona, Piso, Plano, Tramo
+from app.models.organizacion import Edificio, Persona, Piso, Plano, Recinto, Tramo
 
 __all__ = [
     "COLORES_ESTADO",
@@ -47,6 +47,7 @@ __all__ = [
     "Persona",
     "Piso",
     "Plano",
+    "Recinto",
     "RolVlan",
     "TipoDato",
     "TipoElemento",

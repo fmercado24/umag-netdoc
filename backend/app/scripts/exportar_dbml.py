@@ -34,7 +34,7 @@ GRUPOS: dict[str, tuple[str, str, list[str]]] = {
     "territorio": (
         "Territorio",
         "#1e6fd9",
-        ["edificio", "piso", "tramo", "plano", "persona", "levantamiento"],
+        ["edificio", "piso", "tramo", "plano", "recinto", "persona", "levantamiento"],
     ),
     "catalogo": ("Catálogo", "#7c3aed", ["tipo_elemento", "definicion_atributo"]),
     "elementos": ("Elementos", "#0f9d58", ["elemento", "fotografia", "historial_elemento"]),

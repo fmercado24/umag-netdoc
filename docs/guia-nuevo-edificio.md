@@ -17,11 +17,11 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 | 1 | Confirmar el código del edificio | Tabla de la sección 1 | `ING` existe en el catálogo |
 | 2 | Crear la carpeta del edificio | `cp -r data/_plantilla data/ing` | `data/ing/` con las plantillas |
 | 3 | Llenar las planillas en terreno | Excel o Google Sheets → CSV | `ing-p01-t1.csv`, `ing-puntos-de-datos.csv`… |
-| 4 | Preparar las láminas | `preparar_laminas ING --aplicar` | Láminas SVG horizontales y limpias |
+| 4 | Preparar las láminas y leer sus recintos | `preparar_laminas ING --aplicar`, `extraer_recintos ING` | Láminas SVG horizontales y `ing-recintos.csv` con los números de sala |
 | 5 | Ensayar la importación | `importar_edificio ING --solo-advertencias` | Informe sin discrepancias graves |
 | 6 | Importar | `importar_edificio ING` (o `./iniciar.sh`) | "Importación completada" |
-| 7 | Cargar planos y fotos | `cargar_planos ING`, `cargar_fotografias ING` (o `./iniciar.sh`) | Planos vigentes por piso o tramo |
-| 8 | Ubicar racks y puntos de datos | Visor → *Ubicar en el plano* | Marcadores sobre el plano |
+| 7 | Cargar planos y fotos | `cargar_planos ING`, `cargar_fotografias ING` (o `./iniciar.sh`) | Planos vigentes por piso o tramo, y cada elemento en su recinto |
+| 8 | Ubicar lo pendiente | Visor → *Editar → N° de recinto*, o *Ubicar en el plano* | Todo con su marcador |
 | 9 | Completar las fichas | Visor → *Editar* | Completitud cercana al 100 % |
 | 10 | Monitoreo (opcional) | [manual-monitoreo.md](manual-monitoreo.md) | El edificio aparece en Grafana / Zabbix |
 
@@ -91,6 +91,7 @@ data/ing/
 ├── ing-puntos-de-datos.csv   todos los puntos de datos del edificio (opcional)
 ├── ing-vlans.csv             leyenda de VLANs (opcional)
 ├── ing-laminas.csv           excepciones de lámina (opcional, casi nunca hace falta)
+├── ing-levantamiento.csv     fechas de las visitas a terreno (opcional)
 ├── planos/                   ing-p01-t1.svg, ing-p02.svg…
 └── fotos/                    ING-SW01-P01-T1.jpg…
 ```
@@ -121,7 +122,7 @@ de las planillas del CADI y van en este orden; las tres últimas son opcionales.
 | **Elemento** | Marca y modelo | `Cisco CBS350-24P` | La marca se reconoce sola si es una de: Cisco, Dell, D-Link, Grandstream, HP, Huawei, Linksys, MikroTik, Tripp Lite, Ubiquiti (UniFi/EdgeSwitch)… |
 | **Etiqueta** | Rótulo físico del equipo | `SW-DATOS`, `RACK-01` | En patch panels, la cantidad de puertos: `24 Puntos` |
 | **Tipo** | Tipo de elemento | `Switches` | Ver la tabla de tipos. Mayúsculas y tildes dan igual |
-| **Ubicación** | Recinto donde está | `Sala de Comunicaciones 101` | Texto libre; incluya el número de sala |
+| **Ubicación** | Recinto donde está | `Sala de Comunicaciones 1101` | Texto libre, con el **número de sala** tal como está en el plano: con él el equipo se ubica solo (sección 4) |
 | **Estado Operativo** | Estado del equipo | `Operativo / Activo / En línea (Online)` | Si contiene "fuera de servicio" queda *inactivo*; si no, *activo* |
 | **Estado Condición** | Estado físico | `Excelente / Bueno (Óptimo)` | Debe empezar por `Excelente`, `Regular` o `Malo` |
 | **Notas** | Observaciones | `Enlace: F.O. a Rack-01 DSI` | Ver "Notas con significado" |
@@ -180,14 +181,14 @@ Un punto de datos por fila; todos los del edificio en un solo archivo.
 
 | Columna | Qué va | Ejemplo |
 |---|---|---|
-| **Elemento** | Recinto, con o sin "Roseta" | `Roseta Laboratorio 105` → recinto *Laboratorio 105* |
+| **Elemento** | Recinto, con o sin "Roseta", y su número de sala | `Roseta Laboratorio 1105` → recinto *Laboratorio 1105* |
 | **Etiqueta** | Rótulo físico | `P01-T1-R1-D01` |
 | **Tipo** | `Punto de datos` | |
-| **Ubicación** | Piso y tramo | `Piso 1 - Tramo 1`, o `Piso 1` sin tramos |
+| **Ubicación** | Piso y tramo | `Piso 1 - Tramo 1`, `Piso 1` sin tramos, o `Piso Subterráneo` |
 | **Estado Operativo**, **Estado Condición**, **Notas** | Igual que en equipamiento | |
 
 El **rótulo** es `P<piso>-T<tramo>-R<rack>-<puerto>` (sin tramo:
-`P01-R1-D01`). La primera letra del puerto indica el servicio: `D` datos,
+`P01-R1-D01`; en el subterráneo, `SUB-R11-D05`). La primera letra del puerto indica el servicio: `D` datos,
 `T` telefonía, `C` CCTV. Con el rótulo NetDoc arma el código
 (`ING-PD-P01-T1-R01-D01`) y registra el enlace del rack a ese punto. Un punto
 sin rótulo se anota `Sin etiqueta` y queda como `ING-PD-P01-T1-SIN-ROTULO-01`,
@@ -225,6 +226,24 @@ Una fila sin *recinto* vale para todo el tramo; una con recinto es una
 excepción que se busca en la ubicación y la etiqueta del elemento. Un caso
 aislado no necesita este archivo: se corrige desde la ficha en el visor
 (fila *Lámina*).
+
+### 3.5 Fechas del levantamiento: `ing-levantamiento.csv` (opcional)
+
+Las planillas no traen la fecha en que se levantó cada elemento. Se declara
+aquí, una fila por visita a terreno, con los pisos que cubrió (vacío = todo
+el edificio):
+
+```
+fecha_inicio,fecha_cierre,pisos,observaciones
+2026-09-15,2026-09-16,P01 P02 P03 P04,"Recorrido del edificio"
+```
+
+Cada visita queda en la bitácora de levantamientos del edificio, y los
+elementos de esos pisos toman como **fecha del último levantamiento** la de
+cierre (la de inicio, si la visita sigue abierta). Una fecha posterior que ya
+tenga un elemento, registrada desde el visor, no se reemplaza. Se aplica al
+importar y en cada `./iniciar.sh`, también a un edificio ya importado: para
+una visita nueva basta con agregar su fila.
 
 ## 4. Láminas (planos)
 
@@ -291,6 +310,44 @@ resultado no le convence, copie el original de vuelta. Ábralas en el navegador
 Las dimensiones de la lámina fijan el sistema de coordenadas de las posiciones:
 **prepare las láminas antes de ubicar elementos**, no después.
 
+### 4.1 Recintos: los números de sala de cada lámina
+
+Cada sala de los planos lleva su número bajo el nombre, y el número dice el
+piso: los recintos del subterráneo empiezan con `00` (`0017`), los del primer
+piso con `1` (`1083`), los del segundo con `2`, y así. Con ese número, el que
+las planillas anotan en la ubicación, **cada elemento queda solo en su sala**:
+los puntos de datos de una sala en un solo marcador que se despliega, los
+equipos uno junto al otro y cada rack sobre su rótulo de la lámina
+(«RACK 08»).
+
+Las láminas de CAD traen el texto convertido en trazos, así que el sistema las
+lee con OCR, una vez por versión de cada lámina:
+
+```bash
+cd backend
+.venv/bin/python -m pip install -r requirements-ocr.txt   # una vez (~400 MB)
+.venv/bin/python -m app.scripts.extraer_recintos ING
+#   ing-p01-t1.svg: 58 recintos (1 en la segunda lectura), racks R01, R02 (55 s)
+#   …
+#   Recintos de las planillas que no aparecen en las láminas de su piso (1):
+#     - P01 1063 «Recepción 1063» → en la lámina: 1082 (SECRETARÍA RECEPCIÓN)
+```
+
+El resultado queda en `data/ing/ing-recintos.csv`, con una fila por recinto:
+lámina, número, nombre, `x` e `y` (el punto bajo el número donde se dibujan
+sus elementos) y la huella de la lámina leída. Revíselo como una planilla más:
+
+- **Un recinto de las planillas que no aparece** es un número mal transcrito
+  (corríjalo en la planilla antes de importar, o después en el visor) o un
+  rótulo que el OCR no alcanzó a leer. En ese caso agregue la fila a mano: las
+  coordenadas se ven en la ficha de cualquier elemento ubicado cerca.
+- **Una fila mal leída** se corrige o se borra.
+- Para releer solo una lámina: `extraer_recintos ING ing-p01-t1.svg`.
+
+Si una lámina cambia, vuelva a leerla: el sistema no usa recintos leídos de
+otra versión y lo avisa al arrancar. Los recintos se cargan junto con las
+láminas (paso 7).
+
 ## 5. Fotografías (opcional)
 
 Deje las fotos en `data/ing/fotos/` con el código del elemento como nombre
@@ -354,10 +411,33 @@ en imágenes chicas, que es lo que permite moverlo y acercarlo con fluidez en
 el visor. Toma de 5 a 20 segundos por lámina y se hace una sola vez por
 versión (`▦ ING P01 · Tramo 1 (12 s)`).
 
-## 8. Ubicar racks y puntos de datos en el visor
+## 8. Ubicar lo pendiente en el visor
 
-Abra el visor (`http://localhost:5173`, o la dirección del servidor) y elija
-**Edificio**, **Piso** y **Tramo** en la barra superior.
+Al cargar las láminas (paso 7), cada elemento con su número de sala quedó en
+su recinto, y lo que no se pudo ubicar se listó en la terminal:
+
+```
+Ubicación en los planos
+  Ubicados en su recinto: 210
+  Ubicados junto a otro elemento de su sala, que no tiene número en la lámina: 4
+  Con un recinto que no aparece en las láminas de su piso (3): corrija el N° de recinto …
+    - P01 «Recepción 1063»: ING-PD-P01-T2-R04-D16 … → en la lámina: 1082 (SECRETARÍA RECEPCIÓN)
+  Sin número de recinto (2): complételo en el visor (Editar → N° de recinto) …
+    - P02 «Sala Eléctrica»: ING-R05-P02-T1
+```
+
+En el visor (`http://localhost:5173`, o la dirección del servidor), elija
+**Edificio**, **Piso** y **Tramo** en la barra superior. Lo pendiente lleva la
+marca *sin ubicar* en el listado y un aviso en su ficha.
+
+- **Falta el número, o está mal:** ficha → **Editar** → **N° de recinto**. El
+  campo sugiere los recintos del piso. Al guardar, el elemento se ubica solo.
+- **Su sala no tiene número en la lámina**, o el elemento no está donde dice su
+  recinto: ubíquelo a mano, como se explica abajo.
+- **Ubicar en su recinto**, en la ficha, devuelve a su sala un elemento que se
+  movió a mano.
+
+Para ubicar a mano:
 
 1. **Racks primero.** En el listado lateral los racks aparecen arriba, con una
    flecha y el número de equipos montados. Seleccione un rack →
@@ -382,7 +462,13 @@ de importar.
 ## 9. Completar las fichas
 
 La barra de completitud de cada ficha mide los atributos obligatorios del SOP
-§9 (IP, MAC, serie, datos propios del tipo…). Para completarlos: ficha →
+§9 (IP, MAC, serie, datos propios del tipo…).
+
+**Datos confidenciales.** Las direcciones MAC e IP, la configuración de los
+equipos, la fecha de instalación, los datos del cableado y los responsables
+se registran **solo en la instalación institucional del sistema**, desde
+el visor. No los agregue a las planillas de `data/`, que se versionan en el
+repositorio del proyecto. Para completarlos: ficha →
 **Editar** → llene los campos → *Registrado por* y un *Comentario* (quedan en
 el historial) → **Guardar cambios**. Solo se guarda lo que cambió.
 
@@ -410,10 +496,11 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 
 | Situación | Qué hacer |
 |---|---|
-| Se levantó un tramo más (o más puntos de datos) | Deje la planilla nueva en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila |
+| Se levantó un tramo más (o más puntos de datos) | Deje la planilla nueva en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo, ya ubicado en su recinto: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila y, si la planilla es de otro piso, pasa a ese piso con el código que le corresponde |
 | Un dato está mal | Corríjalo en el visor con **Editar**: queda en el historial. No reimporte |
+| Se hizo otra visita a terreno | Agregue su fila a `ing-levantamiento.csv` (sección 3.5) y ejecute `./iniciar.sh` |
 | Se retiró un equipo | `http://localhost:8000/docs` → `DELETE /api/v1/elementos/{código}` (baja lógica: el código no se reutiliza) |
-| Hay una versión nueva de una lámina | Reemplace el archivo en `data/ing/planos/` (mismo nombre, pasado por `preparar_laminas`) y ejecute `cargar_planos ING` o `./iniciar.sh`: entra como versión nueva y la anterior queda como histórica. Si la lámina conserva su tamaño, las posiciones se mantienen. Si no, el dibujo es otro y los elementos ubicados en ella **quedan sin ubicar**: el comando los lista para volver a marcarlos, y las coordenadas anteriores quedan en su historial |
+| Hay una versión nueva de una lámina | Reemplace el archivo en `data/ing/planos/` (mismo nombre, pasado por `preparar_laminas`), vuelva a leer sus recintos (`extraer_recintos ING ing-p01-t1.svg`) y ejecute `cargar_planos ING` o `./iniciar.sh`: entra como versión nueva y la anterior queda como histórica. Si la lámina conserva su tamaño, las posiciones se mantienen. Si no, el dibujo es otro y los elementos ubicados en ella **quedan sin ubicar**: el comando los lista para volver a marcarlos, y las coordenadas anteriores quedan en su historial |
 | Las planillas estaban muy mal y aún no se ubicó nada | `importar_edificio ING --recargar` reemplaza todo lo importado. **Se pierden las posiciones y el historial** de esos elementos |
 
 ## 12. Problemas frecuentes
@@ -433,6 +520,9 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | `el piso P0X no existe en el sistema` al cargar planos | Hay lámina pero ningún elemento en ese piso (los pisos se crean al importar) | Importe ese piso, o créelo en `http://localhost:8000/docs` → `POST /api/v1/edificios/ING/pisos` y vuelva a cargar los planos |
 | Un punto de datos no aparece al elegir su tramo | Está dibujado en la lámina de otro tramo | Fila *Lámina* de su ficha, o `ing-laminas.csv` |
 | No se puede ubicar un switch | Está montado en un rack | Ubique el rack; el switch se ve dentro |
+| `… se leyó de otra versión de «…»` al arrancar | La lámina cambió después de leer sus recintos | `extraer_recintos ING <lámina>` |
+| Un elemento con número de recinto queda *sin ubicar* | El número no está en las láminas de su piso (o el OCR no lo leyó) | Revise el informe de `extraer_recintos`: corrija el N° de recinto en el visor o agregue la fila a `ing-recintos.csv` |
+| `Falta el OCR para leer las láminas` | No se instaló la dependencia opcional | `cd backend && .venv/bin/python -m pip install -r requirements-ocr.txt` |
 
 ## Glosario
 
@@ -447,3 +537,5 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
   en las planillas; requiere verificación en terreno.
 - **Completitud:** porcentaje de atributos obligatorios del SOP §9 que tiene la
   ficha de un elemento.
+- **Recinto:** sala rotulada en la lámina con su número (`1083`; `0017` en el
+  subterráneo). Es lo que ubica a los elementos en el plano sin hacer clic.

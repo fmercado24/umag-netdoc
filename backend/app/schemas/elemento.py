@@ -13,7 +13,7 @@ from app.models.enums import (
     EstadoOperativo,
     OrigenCambio,
 )
-from app.schemas.organizacion import PlanoLeer
+from app.schemas.organizacion import PlanoLeer, RecintoLeer
 from app.servicios.validacion import RE_MAC
 
 BASE = ConfigDict(from_attributes=True)
@@ -61,6 +61,11 @@ class ElementoCrear(_RedValidada):
 
     etiqueta: str | None = Field(default=None, max_length=160)
     ubicacion_descriptiva: str | None = Field(default=None, max_length=200)
+    numero_recinto: str | None = Field(
+        default=None,
+        max_length=20,
+        description="Número de la sala en el plano (p. ej. 1083); vacío = el de la ubicación",
+    )
     padre_codigo: str | None = Field(default=None, description="Código del rack contenedor")
     unidad_rack: int | None = None
 
@@ -94,6 +99,8 @@ class ElementoActualizar(_RedValidada):
     #: Lámina donde se dibuja (código de tramo); nulo = la de su propio tramo.
     tramo_lamina: str | None = None
     ubicacion_descriptiva: str | None = None
+    #: Al cambiarlo, el elemento pasa a ese recinto en el plano.
+    numero_recinto: str | None = None
     padre_codigo: str | None = None
     unidad_rack: int | None = None
     plano_id: int | None = None
@@ -165,6 +172,7 @@ class ElementoMapa(BaseModel):
     tramo_lamina_codigo: str | None = None
     # Campos que la búsqueda del visor filtra en el cliente.
     ubicacion_descriptiva: str | None = None
+    numero_recinto: str | None = None
     marca: str | None = None
     modelo: str | None = None
     direccion_ip: str | None = None
@@ -279,6 +287,9 @@ class ElementoDetalle(ElementoLeer):
     vlans: list[VlanElemento] = []
     externos: list[IdentificadorExternoLeer] = []
     completitud: CompletitudLeer | None = None
+    #: El recinto de su número en las láminas del piso; nulo si no tiene
+    #: número o el número no aparece en ellas.
+    recinto_en_plano: RecintoLeer | None = None
     creado_en: dt.datetime
     actualizado_en: dt.datetime
 

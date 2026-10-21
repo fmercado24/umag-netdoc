@@ -184,6 +184,20 @@ export default function App() {
     [posicionando, mapa, recargarMapa, reportar],
   )
 
+  /** Lo deja en el recinto de su número; puede quedar en la lámina de otro tramo. */
+  const ubicarEnRecinto = useCallback(() => {
+    if (!detalle) return
+    api
+      .ubicarEnRecinto(detalle.id)
+      .then((actualizado) => {
+        setDetalle(actualizado)
+        setHistorial(null)
+        setPosicionando(null)
+        recargarMapa()
+      })
+      .catch(reportar)
+  }, [detalle, recargarMapa, reportar])
+
   /** Cambia la lámina donde se dibuja el elemento; su posición anterior se borra. */
   const cambiarLamina = useCallback(
     (codigoTramo: string) => {
@@ -214,6 +228,7 @@ export default function App() {
         e.etiqueta,
         e.tipo_nombre,
         e.ubicacion_descriptiva,
+        e.numero_recinto,
         e.marca,
         e.modelo,
         e.direccion_ip,
@@ -359,6 +374,7 @@ export default function App() {
             }}
             onCerrar={() => setDetalle(null)}
             onPosicionar={() => setPosicionando(detalle)}
+            onUbicarEnRecinto={ubicarEnRecinto}
             onPedirHistorial={() => api.historial(detalle.id).then(setHistorial).catch(reportar)}
             onSeleccionarCodigo={seleccionar}
           />

@@ -11,7 +11,9 @@ ejemplo antes de importar.
 | `codigo-puntos-de-datos.csv` | No | Un punto de datos por fila |
 | `codigo-vlans.csv` | No | Leyenda de VLANs y la VLAN de cada servicio |
 | `codigo-laminas.csv` | No | Solo si hay elementos dibujados en la lámina de otro tramo |
+| `codigo-levantamiento.csv` | No | Fechas de cada visita a terreno y pisos que cubrió: dan la fecha del último levantamiento de los elementos |
 | `planos/` | No | Láminas SVG con nombre obligatorio `codigo-p<piso>[-t<tramo>].svg`: `codigo-p01-t1.svg`, `codigo-p02.svg` (piso completo), `codigo-p00.svg` (subterráneo) |
+| `codigo-recintos.csv` | No: lo escribe `extraer_recintos` | Números de sala y rótulos de racks leídos de las láminas. Con ellos cada elemento se ubica solo en su recinto, así que la **ubicación** de cada fila de las planillas debe traer el número de sala del plano (`Oficina 1083`; `0017` en el subterráneo) |
 | `fotos/` | No | Fotografías con el código del elemento: `ING-SW01-P01-T1.jpg` |
 
 El detalle de cada columna y el procedimiento completo están en

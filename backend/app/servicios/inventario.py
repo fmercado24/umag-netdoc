@@ -34,6 +34,7 @@ def a_registro(e: Elemento) -> dict:
             "tramo": e.tramo_codigo,
             "lamina": e.tramo_lamina_codigo,
             "recinto": e.ubicacion_descriptiva,
+            "numero_recinto": e.numero_recinto,
             # Un switch montado en un rack está donde está el rack.
             "contenedor": e.padre_codigo,
             "montado": e.montado,
@@ -74,6 +75,7 @@ COLUMNAS_CSV = [
     "tramo",
     "lamina",
     "recinto",
+    "numero_recinto",
     "contenedor",
     "montado",
     "unidad_rack",

@@ -29,6 +29,7 @@ Construcción desde cero (no extensión de NetBox):
 | Base de datos | SQLite (desarrollo) → PostgreSQL | Modelo portable: `JSONB` en PostgreSQL, `JSON` en SQLite |
 | Migraciones | Alembic | El mismo esquema versionado en SQLite y PostgreSQL; `render_as_batch` para los `ALTER TABLE` de SQLite |
 | Integraciones | Prometheus, Alertmanager, Grafana, Zabbix | Métricas, descubrimiento de objetivos, webhooks de estado y conector de hosts; ver [docs/integraciones.md](docs/integraciones.md) |
+| Lectura de láminas | RapidOCR (opcional, `requirements-ocr.txt`) | Lee los números de sala y los rótulos de racks de las láminas de CAD, cuyo texto viene convertido en trazos. Solo lo necesita quien prepara las láminas |
 
 ```
 umag-netdoc/
@@ -37,12 +38,12 @@ umag-netdoc/
 │   ├── app/
 │   │   ├── models/      Modelo de datos (SQLAlchemy)
 │   │   ├── schemas/     Contratos de entrada y salida (Pydantic)
-│   │   ├── servicios/   Nomenclatura, validación, historial, monitoreo, métricas
+│   │   ├── servicios/   Nomenclatura, validación, historial, recintos, monitoreo, métricas
 │   │   ├── integraciones/ Conectores con otros sistemas (Zabbix)
 │   │   ├── api/v1/      Routers HTTP
-│   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, fotos, sincronización
+│   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           117 pruebas (pytest)
+│   └── tests/           174 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -57,17 +58,21 @@ umag-netdoc/
 
 | Archivo | Contenido |
 |---|---|
-| `cadi-p<piso>-t<tramo>.csv` (8) | Equipamiento por tramo — **fuente autoritativa**, porque traen la ubicación descriptiva que el SOP §9.1 exige |
-| `cadi-puntos-de-datos.csv` | 292 puntos de datos (la planilla también los llama "rosetas"), cada uno con el rótulo que codifica piso, tramo, rack y puerto, y el recinto donde está |
+| `cadi-p<piso>-t<tramo>.csv` (9) | Equipamiento por tramo, del subterráneo (`cadi-p00.csv`) al Piso 4 — **fuente autoritativa**, porque traen la ubicación descriptiva que el SOP §9.1 exige |
+| `cadi-puntos-de-datos.csv` | 308 puntos de datos (la planilla también los llama "rosetas"), cada uno con el rótulo que codifica piso, tramo, rack y puerto (`SUB-R11-D05` en el subterráneo), y el recinto donde está |
 | `cadi-global.csv` | Consolidado histórico. **No se importa**: se usa solo para contrastar y reportar diferencias |
 | `cadi-vlans.csv` | Leyenda de VLANs del edificio y la VLAN por omisión de cada servicio |
 | `cadi-laminas.csv` | Lo rotulado P01-T3 que está dibujado en otra lámina (ver hallazgo 8) |
+| `cadi-levantamiento.csv` | Fechas de las visitas a terreno (pisos 1 a 4 el 15 y 16 de septiembre de 2026; subterráneo el 15 de octubre): dan la fecha del último levantamiento de cada elemento |
 | `planos/*.svg` (9) | Láminas de cableado estructurado de la DSI, exportadas desde CAD (2853,6×2018,4): una por tramo en los pisos 1 a 3, una para el piso 4 y otra para el subterráneo. Se llaman según la nomenclatura obligatoria (`cadi-p01-t1.svg`, `cadi-p04.svg`, `cadi-p00.svg`) y `./iniciar.sh` las carga en `backend/media/planos/` |
+| `cadi-recintos.csv` | 274 números de sala y 6 rótulos de racks leídos de las láminas con `extraer_recintos`: con ellos cada elemento se ubica solo en su recinto |
 
-El importador deja un informe de discrepancias en cada ejecución. Los
-hallazgos están analizados en [docs/hallazgos-cadi.md](docs/hallazgos-cadi.md):
-2 racks referenciados sin ficha, 2 rótulos duplicados pendientes, 6 puntos de datos sin
-rótulo y un tramo completo (**Piso 2 Tramo 2**) sin levantar.
+El importador deja un informe de discrepancias en cada ejecución, y la carga
+de láminas cruza las planillas con los recintos de cada lámina. Los hallazgos
+están analizados en [docs/hallazgos-cadi.md](docs/hallazgos-cadi.md): 2 rótulos
+duplicados pendientes, 6 puntos de datos sin rótulo, un switch que declara el
+rack de otro piso y 7 números de sala de las planillas que no aparecen en las
+láminas (la Recepción 1063, por ejemplo, es la 1082 en el plano).
 
 Otros edificios se cargan con el mismo formato en `data/<código>/`: ver la
 [guía para incorporar un edificio](docs/guia-nuevo-edificio.md).
@@ -112,7 +117,7 @@ python3 -m venv .venv
 .venv/bin/python -m app.scripts.migrar
 .venv/bin/python -m app.scripts.cargar_catalogo
 
-# Importar un edificio desde data/<código>/ (el CADI: 368 elementos, 296 enlaces, 4 VLANs)
+# Importar un edificio desde data/<código>/ (el CADI: 389 elementos, 313 enlaces, 4 VLANs)
 .venv/bin/python -m app.scripts.importar_edificio CADI
 .venv/bin/python -m app.scripts.importar_edificio CADI --solo-advertencias  # ensayo, no modifica
 .venv/bin/python -m app.scripts.importar_edificio CADI --agregar           # suma tramos nuevos
@@ -120,8 +125,11 @@ python3 -m venv .venv
                                                          # pierden posiciones e historial
 .venv/bin/python -m app.scripts.importar_edificio --pendientes             # todos los edificios nuevos
 
-# Láminas: revisar/orientar y cargar las que no tienen plano vigente
+# Láminas: revisar/orientar, leer sus recintos (OCR) y cargar las que no
+# tienen plano vigente. Al cargarlas, cada elemento queda en su recinto
 .venv/bin/python -m app.scripts.preparar_laminas CADI [--aplicar]
+.venv/bin/python -m pip install -r requirements-ocr.txt      # una vez, solo para leer láminas
+.venv/bin/python -m app.scripts.extraer_recintos CADI [cadi-p01-t2.svg]
 .venv/bin/python -m app.scripts.cargar_planos [CADI]
 
 # Fotografías de data/<código>/fotos (nombradas con el código del elemento)
@@ -212,6 +220,30 @@ Luego, en el visor: selecciona un elemento → **Ubicar en el plano** → clic
 sobre la posición. El sistema guarda `(x, y)` y deja la entrada correspondiente
 en el historial.
 
+## Ubicación automática por recinto
+
+Casi nada hay que ubicarlo a mano. Cada sala de los planos lleva su número bajo
+el nombre, y el número dice el piso (`0017` en el subterráneo, `1083` en el
+primer piso, `2041` en el segundo…). Las planillas anotan ese mismo número en
+la ubicación de cada elemento, así que el sistema lo dibuja en su sala:
+
+1. `extraer_recintos` lee con OCR los números de sala y los rótulos de racks
+   («RACK 08») de cada lámina y los deja en `data/<código>/<código>-recintos.csv`,
+   amarrados a la versión de la lámina que se leyó.
+2. Al importar y al cargar láminas (`./iniciar.sh` lo hace en cada arranque),
+   cada elemento sin posición va a su recinto: los puntos de datos de una sala
+   en un solo marcador que se despliega, cada rack sobre su rótulo y los demás
+   equipos uno junto al otro. Un AP o una UPS en una sala sin número en la
+   lámina (las salas eléctricas del CADI) queda junto al rack de su sala.
+3. Lo que no se pudo ubicar se lista, con una sugerencia cuando el nombre se
+   parece a otro recinto de la lámina. En el visor, *Editar → N° de recinto*
+   lo ubica al guardar, y *Ubicar en su recinto* devuelve a su sala lo que se
+   movió a mano.
+
+Lo que ya tiene posición nunca se mueve solo. Detalle en
+[docs/modelo-datos.md](docs/modelo-datos.md#ubicación-por-recinto) y paso a
+paso en la [guía, sección 4.1](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
+
 ## Editar los datos de un elemento
 
 En la ficha del visor, **Editar** abre un formulario con la etiqueta, el estado,
@@ -253,10 +285,12 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `POST` | `/api/v1/catalogo/tipos` | Da de alta un tipo nuevo **sin migrar el esquema** |
 | `GET` | `/api/v1/edificios` | Catálogo de edificios (SOP §8.2) |
 | `POST` | `/api/v1/edificios/{cod}/pisos/{piso}/plano` | Carga el plano vigente del piso o, con `tramo`, de uno de sus tramos |
+| `GET` | `/api/v1/edificios/{cod}/pisos/{piso}/recintos` | Recintos de las láminas del piso (número, nombre y dónde se ubican sus elementos) |
 | `GET` | `/api/v1/elementos/mapa?edificio=&piso=&tramo=` | Plano + elementos del piso o del tramo, en una llamada |
 | `GET` | `/api/v1/elementos` | Listado con filtros por tipo, estado, rack y búsqueda libre |
 | `POST` | `/api/v1/elementos` | Alta; genera el código según SOP §8 si no se entrega |
-| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora |
+| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora. Cambiar `numero_recinto` lo lleva a ese recinto |
+| `POST` | `/api/v1/elementos/{id}/ubicar-en-recinto` | Lo deja en su recinto (o un rack, sobre su rótulo) según la lámina |
 | `PATCH` | `/api/v1/elementos/{id}/posicion` | Georreferenciación sobre el plano (SOP §10.3) |
 | `DELETE` | `/api/v1/elementos/{id}` | Baja lógica; el código queda inactivo y no se reasigna (SOP §8.5) |
 | `GET` | `/api/v1/reportes/resumen?edificio=` | Tablero por edificio |
@@ -298,6 +332,12 @@ planilla no trae (serie, MAC, IP, fechas, coordenadas) y **reporta lo que no
 cuadra en vez de silenciarlo**. La completitud promedio resultante — 46,9% —
 es la línea base real contra la cual medir el avance del levantamiento.
 
+**Ubicación por recinto, no por clic.** El número de sala que trae cada
+planilla basta para dibujar el elemento: el sistema lee los números de las
+láminas una vez y ubica todo lo que coincide. La lectura queda en un CSV que
+se revisa como una planilla y vale solo para la versión de la lámina que se
+leyó; lo que no coincide se informa en vez de adivinarse.
+
 **El rack como contenedor.** El rack lleva el marcador y, al seleccionarlo,
 despliega su vista frontal con los equipos montados. Un equipo montado no se
 ubica por separado: toma la posición de su rack. Los AP y las UPS que la planilla
@@ -306,21 +346,24 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 117 pruebas en verde.
-- 361 elementos del CADI importados desde las planillas por tramo y de puntos
-  de datos: 69 equipos (2 racks inferidos), 292 puntos de datos,
-  295 enlaces y 4 VLANs. Completitud promedio 46,9 %.
+- Backend completo y verificado: 174 pruebas en verde.
+- 389 elementos del CADI importados desde las planillas por tramo y de puntos
+  de datos, del subterráneo al Piso 4: 81 equipos, 308 puntos de datos,
+  313 enlaces y 4 VLANs. Ningún rack inferido.
+- 317 de los 337 elementos con marcador propio quedaron ubicados solos en su
+  recinto (los 52 montados se ven en su rack). Completitud promedio 54,6 %.
+- Las 9 láminas cargadas, con sus recintos leídos.
 - Frontend compila y corre: `tsc -b` sin errores, build de producción en
-  ~95 kB gzip, `npm audit` sin vulnerabilidades.
-- 9 hallazgos documentados en
+  ~103 kB gzip. `npm audit` informa una vulnerabilidad alta en
+  `source-map-js`, una dependencia de desarrollo de Vite (`npm audit fix`).
+- 12 hallazgos documentados en
   [docs/hallazgos-cadi.md](docs/hallazgos-cadi.md).
 
 ### Pendientes
 
-1. **Plano del subterráneo** — las láminas de los pisos 1 a 4 ya están
-   cargadas (una por tramo en los pisos 1 a 3, una completa en el 4). Falta la
-   del subterráneo, que no tiene dónde cargarse mientras el piso P00 no exista
-   (ver hallazgo 9).
+1. **20 elementos sin ubicar** (hallazgos 11 y 12): ubicar a mano el rack 8
+   (sus AP y UPS lo siguen) y resolver los números de sala que no coinciden
+   con las láminas.
 
 ## Referencias
 

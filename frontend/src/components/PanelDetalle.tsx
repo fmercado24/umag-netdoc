@@ -36,6 +36,8 @@ interface Props {
   onGuardado: (actualizado: ElementoDetalle) => void
   onCerrar: () => void
   onPosicionar: () => void
+  /** Lo lleva al recinto de su número (ver backend/app/servicios/recintos.py). */
+  onUbicarEnRecinto: () => void
   onPedirHistorial: () => void
   onSeleccionarCodigo: (codigo: string) => void
 }
@@ -108,6 +110,7 @@ export function PanelDetalle({
   onGuardado,
   onCerrar,
   onPosicionar,
+  onUbicarEnRecinto,
   onPedirHistorial,
   onSeleccionarCodigo,
 }: Props) {
@@ -116,6 +119,13 @@ export function PanelDetalle({
   const completitud = detalle.completitud
   const montados = detalle.hijos.filter((h) => h.montado)
   const conectados = detalle.hijos.filter((h) => !h.montado)
+  // Dónde lo ubica el sistema: un rack, sobre su rótulo en la lámina
+  // («RACK 08», clave R08); el resto, en el recinto de su número.
+  const recinto = detalle.recinto_en_plano
+  const sobreRotuloDeRack = recinto !== null && /^R\d{2,3}$/.test(recinto.numero)
+  const nombreDelRecinto = recinto && !sobreRotuloDeRack ? recinto.nombre : null
+  // Tiene número, pero ese número no está rotulado en las láminas del piso.
+  const recintoNoEncontrado = detalle.numero_recinto !== null && recinto === null
 
   const cambiarLamina = (codigo: string) => {
     const aviso = 'Cambiar la lámina borra su posición actual en el plano. ¿Continuar?'
@@ -216,10 +226,38 @@ export function PanelDetalle({
             </div>
           ) : (
             <div className="acciones">
-              <button className="boton" onClick={onPosicionar} disabled={bloqueoPosicion !== null}>
-                {detalle.pos_x === null ? 'Ubicar en el plano' : 'Mover en el plano'}
-              </button>
+              <div className="acciones__botones">
+                <button
+                  className="boton"
+                  onClick={onPosicionar}
+                  disabled={bloqueoPosicion !== null}
+                >
+                  {detalle.pos_x === null ? 'Ubicar en el plano' : 'Mover en el plano'}
+                </button>
+                {recinto && (
+                  <button
+                    className="boton boton--secundario"
+                    onClick={onUbicarEnRecinto}
+                    title="Lo deja donde lo indica la lámina"
+                  >
+                    {sobreRotuloDeRack
+                      ? `Ubicar sobre su rótulo (${recinto.nombre ?? recinto.numero})`
+                      : `Ubicar en su recinto (${recinto.numero})`}
+                  </button>
+                )}
+              </div>
               {bloqueoPosicion && <small className="nota">{bloqueoPosicion}</small>}
+              {recintoNoEncontrado && (
+                <small className="nota">
+                  El recinto {detalle.numero_recinto} no aparece en las láminas de este piso:
+                  corrige el número (Editar) o ubícalo a mano.
+                </small>
+              )}
+              {!detalle.numero_recinto && !recinto && (
+                <small className="nota">
+                  Sin número de recinto: complétalo (Editar) y se ubicará solo en su sala.
+                </small>
+              )}
             </div>
           )}
 
@@ -282,6 +320,15 @@ export function PanelDetalle({
               }
             />
             <Dato etiqueta="Ubicación" valor={detalle.ubicacion_descriptiva} />
+            <Dato
+              etiqueta="Recinto"
+              valor={
+                detalle.numero_recinto &&
+                (nombreDelRecinto
+                  ? `${detalle.numero_recinto} · ${nombreDelRecinto}`
+                  : detalle.numero_recinto)
+              }
+            />
             <Dato
               etiqueta="Coordenadas"
               valor={

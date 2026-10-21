@@ -247,3 +247,95 @@ def test_columnas_opcionales_de_ip_mac_y_serie(cliente, tmp_path, capsys):
     assert (bueno["red"]["direccion_ip"], bueno["red"]["direccion_mac"]) == ("10.60.0.2", "AA:BB:CC:00:11:22")
     assert bueno["equipo"]["numero_serie"] == "FOC1234X"
     assert registros["REC-SW02-P01"]["red"]["direccion_ip"] is None
+
+
+def test_subterraneo_con_rotulos_sub_y_rack_de_otro_piso(cliente, tmp_path, capsys):
+    (tmp_path / "sal-p00.csv").write_text(
+        ENCABEZADO
+        + "RACK-11 DATOS/TEL,R11,racks ,Exclusa 0017,Operativo,Excelente,,Rack-11,\n"
+        + "EdgeSwitch24 LITE,SW-COM,switches,Exclusa 0017,Operativo,Excelente,F.O P1-R2-SW-SFP-B4,Rack-11,\n",
+        encoding="utf-8",
+    )
+    # Un equipo del primer piso que la planilla asocia al rack del subterráneo.
+    (tmp_path / "sal-p01-t1.csv").write_text(
+        ENCABEZADO + "LINKSYS LGS528P,SW CCTV,switches,Sala de Grabación 1015,Operativo,Excelente,,Rack-11,\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sal-puntos-de-datos.csv").write_text(
+        ENCABEZADO_PD
+        + "Roseta  Sala de Experimentación 0011,SUB-R11-D05,puntos de datos (rosetas),Piso Subterráneo,Operativo,Excelente,\n"
+        + "Roseta Área de Espera 1011,P01-T1-R11-C02,puntos de datos (rosetas),Piso 1 - Tramo 1,Operativo,Excelente,\n",
+        encoding="utf-8",
+    )
+    main(["SAL", "--datos", str(tmp_path)])
+    salida = capsys.readouterr().out
+    assert "ubicación ilegible" not in salida and "no sigue el patrón" not in salida
+    assert "SW CCTV (Sala de Grabación 1015) declara el Rack-11, que está en otro piso (SAL-R11-P00)" in salida
+
+    rack = cliente.get(f"{API}/elementos/SAL-R11-P00").json()
+    assert (rack["piso_codigo"], rack["numero_recinto"]) == ("P00", "0017")
+    assert cliente.get(f"{API}/elementos/SAL-SW01-P00").json()["padre_codigo"] == "SAL-R11-P00"
+    punto = cliente.get(f"{API}/elementos/SAL-PD-P00-R11-D05").json()
+    assert (punto["ubicacion_descriptiva"], punto["numero_recinto"]) == ("Sala de Experimentación 0011", "0011")
+    # El cableado de un piso a otro sí se registra.
+    assert cliente.get(f"{API}/elementos/SAL-PD-P01-T1-R11-C02").json()["piso_codigo"] == "P01"
+    linksys = cliente.get(f"{API}/elementos/SAL-SW01-P01-T1").json()
+    assert linksys["padre_codigo"] is None
+    assert "La planilla lo asocia al Rack-11 (SAL-R11-P00), que está en otro piso." in linksys["observaciones"]
+
+
+def test_agregar_lleva_un_rack_inferido_al_piso_de_su_planilla(cliente, tmp_path, capsys):
+    # Primero solo el primer piso: el rack 11 aparece en sus rótulos y queda
+    # inferido ahí, con el switch montado en él.
+    (tmp_path / "agr-p01-t1.csv").write_text(
+        ENCABEZADO + "LINKSYS LGS528P,SW CCTV,switches,Sala de Grabación 1015,Operativo,Excelente,,Rack-11,\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "agr-puntos-de-datos.csv").write_text(
+        ENCABEZADO_PD
+        + "Roseta Área de Espera 1011,P01-T1-R11-C02,puntos de datos (rosetas),Piso 1 - Tramo 1,Operativo,Excelente,\n",
+        encoding="utf-8",
+    )
+    main(["AGR", "--datos", str(tmp_path)])
+    assert cliente.get(f"{API}/elementos/AGR-SW01-P01-T1").json()["padre_codigo"] == "AGR-R11-P01-T1"
+
+    # Llega la planilla del subterráneo, donde está de verdad.
+    (tmp_path / "agr-p00.csv").write_text(
+        ENCABEZADO + "RACK-11 DATOS/TEL,R11,racks ,Exclusa 0017,Operativo,Excelente,,Rack-11,\n",
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+    main(["AGR", "--datos", str(tmp_path), "--agregar"])
+    salida = capsys.readouterr().out
+    assert "Racks completados con su planilla: AGR-R11-P01-T1 → AGR-R11-P00" in salida
+    assert "AGR-SW01-P01-T1 (Sala de Grabación 1015) estaba montado en AGR-R11-P00" in salida
+
+    rack = cliente.get(f"{API}/elementos/AGR-R11-P00").json()
+    assert (rack["piso_codigo"], rack["tramo_codigo"], rack["etiqueta"]) == ("P00", None, "R11")
+    assert cliente.get(f"{API}/elementos/AGR-R11-P01-T1").status_code == 404
+    switch = cliente.get(f"{API}/elementos/AGR-SW01-P01-T1").json()
+    assert switch["padre_codigo"] is None
+    # El punto de datos sigue enlazado al rack, ahora en el subterráneo.
+    enlaces = cliente.get(f"{API}/integraciones/inventario?edificio=AGR").json()
+    assert {e["codigo"] for e in enlaces["elementos"]} >= {"AGR-R11-P00", "AGR-PD-P01-T1-R11-C02"}
+    historial = cliente.get(f"{API}/elementos/AGR-R11-P00/historial").json()
+    assert any(h["campo"] == "codigo" and h["valor_anterior"] == "AGR-R11-P01-T1" for h in historial)
+
+
+def test_numero_de_sala_de_otro_piso_se_informa(cliente, tmp_path, capsys):
+    (tmp_path / "hum-p03.csv").write_text(
+        ENCABEZADO + "Rack 12U,RACK-01,Racks,Sala Eléctrica 3082,Operativo,Excelente,,Rack-01,\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "hum-puntos-de-datos.csv").write_text(
+        ENCABEZADO_PD
+        + "Roseta Box Fisiopatología 2022,P03-R1-D17,Punto de datos,Piso 3,Operativo,Excelente,\n",
+        encoding="utf-8",
+    )
+    main(["HUM", "--datos", str(tmp_path)])
+    assert (
+        "el número 2022 de «Box Fisiopatología 2022» no corresponde al piso P03, "
+        "cuyos recintos empiezan con 3"
+    ) in capsys.readouterr().out
+    assert cliente.get(f"{API}/elementos/HUM-PD-P03-R01-D17").json()["numero_recinto"] is None
+    assert cliente.get(f"{API}/elementos/HUM-R01-P03").json()["numero_recinto"] == "3082"

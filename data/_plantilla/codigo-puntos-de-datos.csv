@@ -1,6 +1,6 @@
 Elemento,Etiqueta,Tipo,Ubicación (Hacia dónde va el cable),Estado Operativo,Estado Condición,Notas
-Roseta Laboratorio 105,P01-T1-R1-D01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),
-Roseta Laboratorio 105,P01-T1-R1-D02,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),
-Roseta Laboratorio 105,P01-T1-R1-T01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Anexo 4012
-Roseta Pasillo 110,P01-T1-R1-C01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Regular / Aceptable,Cámara pasillo norte
+Roseta Laboratorio 1105,P01-T1-R1-D01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),
+Roseta Laboratorio 1105,P01-T1-R1-D02,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),
+Roseta Laboratorio 1105,P01-T1-R1-T01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Excelente / Bueno (Óptimo),Anexo 4012
+Roseta Pasillo 1110,P01-T1-R1-C01,Punto de datos,Piso 1 - Tramo 1,Operativo / Activo / En línea (Online),Regular / Aceptable,Cámara pasillo norte
 Roseta Bodega 112,Sin etiqueta,Punto de datos,Piso 1 - Tramo 1,Fuera de servicio / Inactivo / Fuera de línea (Offline),Malo / Crítico,Verificar con tester

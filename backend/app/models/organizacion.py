@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, MixinTiempos
@@ -143,6 +151,9 @@ class Plano(Base, MixinTiempos):
 
     piso: Mapped[Piso] = relationship(back_populates="planos")
     tramo: Mapped[Tramo | None] = relationship(lazy="joined")
+    recintos: Mapped[list["Recinto"]] = relationship(
+        back_populates="plano", cascade="all, delete-orphan", order_by="Recinto.numero"
+    )
 
     @property
     def tramo_codigo(self) -> str | None:
@@ -150,3 +161,40 @@ class Plano(Base, MixinTiempos):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Plano {self.nombre}>"
+
+
+class Recinto(Base):
+    """Sala dibujada en una lámina, con el punto donde se ubican sus elementos.
+
+    Cada recinto de los planos lleva su número bajo el nombre (``SALA 1`` /
+    ``0021``). ``app.scripts.extraer_recintos`` los lee de la lámina y los
+    deja en ``<edificio>-recintos.csv``; al cargar las láminas se copian aquí.
+    Las coordenadas son las del plano y valen solo para esa versión de la
+    lámina: una versión nueva necesita sus propios recintos.
+
+    ``pos_x`` y ``pos_y`` no son el rótulo, sino el punto bajo él donde se
+    dibujan los marcadores, para no taparlo.
+    """
+
+    __tablename__ = "recinto"
+    __table_args__ = (UniqueConstraint("plano_id", "numero", name="uq_recinto_plano_numero"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plano_id: Mapped[int] = mapped_column(
+        ForeignKey("plano.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    #: Como está en el plano: "0017", "1083", "1083.2".
+    numero: Mapped[str] = mapped_column(String(20), nullable=False)
+    nombre: Mapped[str | None] = mapped_column(String(160))
+    pos_x: Mapped[float] = mapped_column(Float, nullable=False)
+    pos_y: Mapped[float] = mapped_column(Float, nullable=False)
+
+    plano: Mapped[Plano] = relationship(back_populates="recintos")
+
+    @property
+    def tramo_codigo(self) -> str | None:
+        """Tramo de la lámina donde está; None si la lámina cubre el piso completo."""
+        return self.plano.tramo_codigo
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Recinto {self.numero}>"

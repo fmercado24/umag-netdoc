@@ -192,9 +192,10 @@ export function PanelLateral({
                       onClick={() => alternarAbierto(nodo.clave)}
                     >
                       <span className="item__punto item__punto--grupo" />
+                      {/* Los ubicados por su recinto forman el grupo de la sala. */}
                       <span className="item__texto">
-                        <strong>Grupo de {nodo.miembros.length} puntos de datos</strong>
-                        <small>{recintos || 'mismo lugar del plano'}</small>
+                        <strong>{recintos || 'Mismo lugar del plano'}</strong>
+                        <small>{nodo.miembros.length} puntos de datos</small>
                       </span>
                     </button>
                   </div>

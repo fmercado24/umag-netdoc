@@ -273,13 +273,13 @@ export function VisorPlano({
                 eventHandlers={{ click: alClicEnMarcador(nodo.pos_x, nodo.pos_y, true, () => {}) }}
               >
                 <Tooltip direction="top" offset={[0, -18]}>
-                  <strong>{nodo.miembros.length} puntos de datos</strong>
                   {recintos && (
                     <>
+                      <strong>{recintos}</strong>
                       <br />
-                      {recintos}
                     </>
                   )}
+                  {nodo.miembros.length} puntos de datos · clic para verlos
                 </Tooltip>
                 {/* Mientras se ubica algo, el clic ubica: no abre la lista. */}
                 {!posicionando && (

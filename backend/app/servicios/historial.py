@@ -21,6 +21,7 @@ CAMPOS_AUDITADOS: tuple[str, ...] = (
     "tramo_id",
     "tramo_lamina_id",
     "ubicacion_descriptiva",
+    "numero_recinto",
     "padre_id",
     "unidad_rack",
     "plano_id",

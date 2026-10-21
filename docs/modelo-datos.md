@@ -17,6 +17,7 @@ erDiagram
     TRAMO ||--o{ ELEMENTO : ubica
     TRAMO |o--o{ PLANO : cubre
     PLANO ||--o{ ELEMENTO : georreferencia
+    PLANO ||--o{ RECINTO : rotula
 
     TIPO_ELEMENTO ||--o{ DEFINICION_ATRIBUTO : define
     TIPO_ELEMENTO ||--o{ ELEMENTO : clasifica
@@ -119,6 +120,7 @@ de retención permanente que exige la sección 12 del SOP.
 | `piso` | `P00`…`PXX` (SOP §8.3), con `orden` para la navegación |
 | `tramo` | Subdivisión horizontal del piso (`T1`, `T2`…), usada en el código |
 | `plano` | Imagen base del piso o de uno de sus tramos (`tramo_id` nulo = piso completo). `ancho_px` y `alto_px` definen el sistema de coordenadas. Solo uno vigente por piso–tramo; los anteriores quedan como histórico |
+| `recinto` | Sala rotulada en una lámina: su número, su nombre y el punto donde se ubican sus elementos. Pertenece a una versión del plano (ver [Ubicación por recinto](#ubicación-por-recinto)) |
 | `persona` | Responsables (SOP §4) |
 | `levantamiento` | Bitácora por edificio (SOP §10.5 punto 24) |
 
@@ -133,7 +135,7 @@ de retención permanente que exige la sección 12 del SOP.
 
 | Tabla | Rol |
 |---|---|
-| `elemento` | Unidad documentada. Identificación, ubicación, coordenadas, estado, identidad de red, trazabilidad y ficha JSON |
+| `elemento` | Unidad documentada. Identificación, ubicación (con el `numero_recinto` de su sala), coordenadas, estado, identidad de red, trazabilidad y ficha JSON |
 | `fotografia` | Evidencia (SOP §10.4), nombrada `<código>_<n>.<ext>` |
 | `historial_elemento` | Bitácora campo a campo |
 
@@ -249,3 +251,59 @@ mover un punto de datos lo saca del grupo.
 Se optó por coordenadas simples y no por PostGIS porque un plano de piso no
 tiene sistema de referencia geográfico y la única operación espacial requerida
 es "dibujar un punto donde el usuario hizo clic".
+
+## Ubicación por recinto
+
+Cada sala de los planos de la DSI lleva su número bajo el nombre
+(`SALA 1` / `0021`), y el número dice el piso: los del subterráneo empiezan con
+`00`, los del primer piso con `1`, los del segundo con `2`, y así. Las planillas
+anotan ese mismo número en la ubicación de cada elemento («Oficina 1083»), así
+que el sistema puede dibujar cada elemento en su sala sin que nadie haga clic.
+
+**`elemento.numero_recinto`.** El número de la sala donde está, separado del
+texto de la ubicación. El importador lo toma de la ubicación, y solo si es del
+piso del elemento: en «Oficina 1039/2018» del primer piso es 1039, y
+«Box Fisiopatología 2022» en el tercer piso no tiene número (2022 es del
+segundo: el importador lo informa como error de transcripción). En el visor se
+completa o corrige en la ficha (*Editar → N° de recinto*); al guardarlo, el
+elemento pasa a ese recinto.
+
+**`recinto`.** Las láminas de CAD traen el texto convertido en trazos, así que
+los números se leen como imagen: `app.scripts.extraer_recintos` dibuja cada
+lámina y la pasa por un OCR. Lo leído queda en `data/<código>/<código>-recintos.csv`
+(lámina, número, nombre, x, y, huella), que se revisa y versiona como una
+planilla más, y al cargar las láminas se copia a esta tabla. `pos_x` y `pos_y`
+no son el rótulo, sino el punto justo bajo el número donde se dibujan los
+marcadores.
+
+Cada recinto pertenece a una **versión** del plano: la huella del CSV
+(`sha256` de la lámina tal como se guarda) debe coincidir con la del plano
+vigente. Si la lámina cambia, sus recintos no se cargan hasta volver a leerla:
+con otro dibujo los números podrían estar en otro lugar.
+
+**Cómo se ubica** (`app/servicios/recintos.py`). Al cargar láminas o importar,
+cada elemento que aún no tiene posición se busca por su número, primero en la
+lámina donde se dibuja y después en las demás del piso. Así se resuelve solo el
+caso de la sala eléctrica del Piso 1, rotulada en el tramo 3 pero dibujada en
+la lámina del tramo 1: el elemento queda en la lámina donde está su sala. Una
+subdivisión sin rótulo propio (`1083.2`) cae en su sala (`1083`).
+
+- Los **puntos de datos** de una sala quedan todos en el mismo punto, y el
+  visor los agrupa en un marcador con el total que se despliega (los
+  *grupos de puntos de datos* descritos más arriba). Uno que llega después
+  se suma al grupo de su sala, aunque el recinto se haya vuelto a leer.
+- Un **rack** rotulado en la lámina («RACK 08») va sobre su rótulo: ubica el
+  rack aunque su sala no tenga número, como las salas eléctricas del CADI.
+- Los **demás equipos** se reparten alrededor, a 1/350 del ancho de la lámina
+  uno del otro: primero a los lados y después más abajo, lejos del rótulo.
+- Lo **montado** en un rack no se ubica: se ve donde esté el rack.
+- Lo que no tiene recinto en la lámina pero la planilla pone en la **misma
+  sala** que un elemento ya ubicado (el AP o la UPS de una sala eléctrica)
+  queda junto a él, de preferencia junto al rack.
+- Lo que **ya tiene posición** no se toca, la haya puesto el sistema o una
+  persona. *Ubicar en su recinto*, en la ficha, lo devuelve a su sala.
+
+Lo que no se pudo ubicar se lista al cargar: elementos sin número de recinto
+y números que no aparecen en las láminas de su piso, con el recinto de nombre
+más parecido como sugerencia («Recepción 1063» → `1082` SECRETARÍA RECEPCIÓN).
+La sugerencia nunca se aplica sola.

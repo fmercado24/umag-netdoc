@@ -1,0 +1,5 @@
+# Solo para leer los números de recinto de las láminas
+# (python -m app.scripts.extraer_recintos). El resto del sistema no lo usa,
+# así que iniciar.sh no lo instala: unos 400 MB entre OCR y sus modelos.
+-r requirements.txt
+rapidocr_onnxruntime>=1.2

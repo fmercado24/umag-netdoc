@@ -72,6 +72,22 @@ Table plano [headercolor: #1e6fd9] {
   Note: 'Imagen base del piso sobre la que se posicionan los elementos.'
 }
 
+Table recinto [headercolor: #1e6fd9] {
+  id integer [pk, increment]
+  plano_id integer [not null]
+  numero varchar(20) [not null]
+  nombre varchar(160)
+  pos_x float [not null]
+  pos_y float [not null]
+
+  indexes {
+    (plano_id, numero) [unique, name: 'uq_recinto_plano_numero']
+    plano_id [name: 'ix_recinto_plano_id']
+  }
+
+  Note: 'Sala dibujada en una lámina, con el punto donde se ubican sus elementos.'
+}
+
 Table persona [headercolor: #1e6fd9] {
   id integer [pk, increment]
   nombre varchar(120) [not null]
@@ -150,6 +166,7 @@ Table elemento [headercolor: #0f9d58] {
   tramo_id integer
   tramo_lamina_id integer
   ubicacion_descriptiva varchar(200)
+  numero_recinto varchar(20)
   padre_id integer
   unidad_rack integer
   plano_id integer
@@ -175,6 +192,7 @@ Table elemento [headercolor: #0f9d58] {
   indexes {
     direccion_ip [name: 'ix_elemento_direccion_ip']
     edificio_id [name: 'ix_elemento_edificio_id']
+    numero_recinto [name: 'ix_elemento_numero_recinto']
     padre_id [name: 'ix_elemento_padre_id']
     piso_id [name: 'ix_elemento_piso_id']
     tipo_elemento_id [name: 'ix_elemento_tipo_elemento_id']
@@ -380,6 +398,7 @@ Ref fk_levantamiento_responsable_id_persona: levantamiento.responsable_id > pers
 Ref fk_piso_edificio_id_edificio: piso.edificio_id > edificio.id [delete: cascade]
 Ref fk_plano_piso_id_piso: plano.piso_id > piso.id [delete: cascade]
 Ref fk_plano_tramo_id_tramo: plano.tramo_id > tramo.id [delete: cascade]
+Ref fk_recinto_plano_id_plano: recinto.plano_id > plano.id [delete: cascade]
 Ref fk_tramo_piso_id_piso: tramo.piso_id > piso.id [delete: cascade]
 Ref fk_vlan_edificio_id_edificio: vlan.edificio_id > edificio.id [delete: set null]
 
@@ -388,6 +407,7 @@ TableGroup territorio [color: #1e6fd9] {
   piso
   tramo
   plano
+  recinto
   persona
   levantamiento
   Note: 'Territorio'

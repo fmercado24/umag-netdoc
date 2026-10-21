@@ -131,8 +131,10 @@ paso "Importando los edificios nuevos"
 
 # Compara cada lámina de data/<código>/planos con las versiones registradas:
 # carga las nuevas y las modificadas. Si una cambió de tamaño, los elementos
-# ubicados sobre ella quedan sin ubicar y se listan aquí.
-paso "Revisando los planos (nuevos y modificados)"
+# ubicados sobre ella quedan sin ubicar y se listan aquí. Después carga los
+# recintos de cada lámina (<código>-recintos.csv) y deja en su recinto cada
+# elemento que aún no está en el plano; lo que no pudo ubicar, lo lista.
+paso "Revisando los planos y ubicando los elementos en su recinto"
 "$PY" -m app.scripts.cargar_planos | sangrar
 
 paso "Cargando las fotografías"

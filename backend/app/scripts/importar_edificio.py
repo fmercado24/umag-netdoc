@@ -27,11 +27,21 @@ el procedimiento completo está en ``docs/guia-nuevo-edificio.md``):
   de su rótulo. Opcional.
 * ``<p>-global.csv`` — consolidado histórico. No se importa; se usa solo para
   contrastar y reportar diferencias. Opcional.
+* ``<p>-levantamiento.csv`` — fechas de las visitas a terreno y pisos que
+  cubrió cada una: dan la fecha del último levantamiento de los elementos
+  (ver ``app.servicios.levantamientos``). Opcional; se aplica también a un
+  edificio ya importado.
 
 El importador **no completa lo que la planilla no dice**. Número de serie,
-MAC, IP de gestión, categoría de cable, fechas y coordenadas quedan vacíos a
-propósito: el reporte "Elementos incompletos por edificio" debe mostrar la
-brecha real respecto de la sección 9 del SOP.
+MAC, IP de gestión, categoría de cable y fechas quedan vacíos a propósito:
+el reporte "Elementos incompletos por edificio" debe mostrar la brecha real
+respecto de la sección 9 del SOP.
+
+Las coordenadas tampoco se inventan: salen del **número de recinto** que trae
+la ubicación («Oficina 1083», «Exclusa 0017»), que se guarda aparte. Si el
+edificio ya tiene láminas con sus recintos leídos (``<p>-recintos.csv``, ver
+``app.scripts.extraer_recintos``), al terminar cada elemento queda en su
+recinto; si no, lo hace ``cargar_planos`` al cargarlas.
 """
 
 from __future__ import annotations
@@ -59,12 +69,26 @@ from app.models import (
     MedioEnlace,
     OrigenCambio,
     Piso,
+    Plano,
     TipoElemento,
     Tramo,
     Vlan,
 )
 from app.servicios.codigos import construir_codigo
 from app.servicios.historial import registrar_alta, registrar_cambios
+from app.servicios.levantamientos import (
+    ArchivoLevantamientoInvalido,
+    aplicar_levantamientos,
+    leer_levantamientos,
+    ruta_levantamientos,
+)
+from app.servicios.recintos import (
+    lineas_informe,
+    numero_de_recinto,
+    numeros_en,
+    prefijo_de_piso,
+    sincronizar_y_ubicar,
+)
 from app.servicios.validacion import RE_MAC
 
 DIR_DATA = DIR_PROYECTO / "data"
@@ -168,12 +192,15 @@ SERVICIOS_POR_PREFIJO: dict[str, str] = {"D": "datos", "T": "telefonia", "C": "c
 
 #: "Piso 1 - Tramo 2", o solo "Piso 1" en los edificios sin tramos.
 RE_PISO_TRAMO = re.compile(r"piso\s*(\d+)(?:\s*-\s*tramo\s*(\d+))?", re.IGNORECASE)
+#: "Piso Subterráneo" (o "Subterráneo - Tramo 1"): el piso P00.
+RE_SUBTERRANEO = re.compile(r"subterr[aá]neo|s[oó]tano", re.IGNORECASE)
+RE_TRAMO = re.compile(r"tramo\s*(\d+)", re.IGNORECASE)
 RE_RACK = re.compile(r"rack\s*-?\s*(\d+)", re.IGNORECASE)
 RE_PUNTOS = re.compile(r"(\d+)\s*puntos?", re.IGNORECASE)
 RE_DISPONIBILIDAD = re.compile(r"disponibilidad\s*(\d+)\s*puntos?", re.IGNORECASE)
-#: "P01-T2-R4-D01", o "P01-R4-D01" en los edificios sin tramos.
-RE_ROTULO_PD = re.compile(r"^P0?(\d+)(?:-T(\d+))?-R0?(\d+)-(.+)$", re.IGNORECASE)
-RE_SALA = re.compile(r"(\d{4}(?:[./]\d+)?)\s*$")
+#: "P01-T2-R4-D01", o "P01-R4-D01" en los edificios sin tramos. En el
+#: subterráneo los rótulos empiezan con SUB en vez del piso: "SUB-R11-D05".
+RE_ROTULO_PD = re.compile(r"^(?:P0?(\d+)|SUB)(?:-T(\d+))?-R0?(\d+)-(.+)$", re.IGNORECASE)
 
 NOMBRES_PISO = {
     "P00": "Subterráneo",
@@ -254,6 +281,20 @@ def columnas_opcionales(encabezado: list[str]) -> dict[str, int]:
 
 def _ubicacion(piso: str, tramo: str | None) -> str:
     return f"{piso}-{tramo}" if tramo else piso
+
+
+def piso_y_tramo(texto: str) -> tuple[str, str | None] | None:
+    """'Piso 1 - Tramo 2' → ('P01', 'T2'); 'Piso Subterráneo' → ('P00', None).
+
+    None si el texto no dice el piso.
+    """
+    if coincidencia := RE_PISO_TRAMO.search(texto):
+        tramo = coincidencia.group(2)
+        return f"P{int(coincidencia.group(1)):02d}", f"T{int(tramo)}" if tramo else None
+    if RE_SUBTERRANEO.search(texto):
+        tramo = RE_TRAMO.search(texto)
+        return "P00", f"T{int(tramo.group(1))}" if tramo else None
+    return None
 
 
 def _codigo_piso(valor: str) -> str:
@@ -409,6 +450,11 @@ def interpretar_notas(notas: str) -> tuple[str | None, str | None]:
     if texto.startswith(("F.O.", "F.O ", "F/UTP")):
         return texto, None
     return None, texto
+
+
+def _observacion_rack_ajeno(observacion: str | None, etiqueta_rack: str, codigo_rack: str) -> str:
+    nota = f"La planilla lo asocia al {etiqueta_rack} ({codigo_rack}), que está en otro piso."
+    return f"{observacion} {nota}" if observacion else nota
 
 
 def nombre_recinto(roseta: str) -> str:
@@ -607,26 +653,78 @@ class Importador:
             datos[campo] = valor
         return datos
 
-    def _completar_rack(self, rack: Elemento, campo, archivo: str) -> None:
+    def _numero_recinto(self, texto: str, codigo_piso: str, contexto: str) -> str | None:
+        """Número de la sala donde está el elemento, si su ubicación lo trae.
+
+        Un número que no es del piso se informa: «Box Fisiopatología 2022» en
+        el tercer piso era un error de transcripción (es la sala 3022).
+        """
+        numero = numero_de_recinto(texto, codigo_piso)
+        if numero is None and (otros := numeros_en(texto)):
+            self.resultado.advertencias.append(
+                f"{contexto}: el número {', '.join(otros)} de «{texto}» no corresponde al piso "
+                f"{codigo_piso}, cuyos recintos empiezan con {prefijo_de_piso(codigo_piso) or '?'}"
+            )
+        return numero
+
+    def _completar_rack(
+        self, rack: Elemento, campo, archivo: str, piso: Piso, tramo: Tramo | None
+    ) -> None:
         """Un rack que solo se conocía por los rótulos recibe los datos de su
-        planilla. Conserva su código, su posición y lo que tiene montado."""
+        planilla. Conserva lo que tiene montado y, si la planilla es de su
+        mismo piso y tramo, también su código y su posición.
+
+        Si es de otro, el rack estaba mal inferido: el rack 11 del CADI aparecía
+        en rótulos del primer piso, pero está en el subterráneo. Pasa al piso y
+        tramo de su planilla con el código que corresponde, y lo montado desde
+        otro piso se desmonta después (``revisar_montajes``).
+        """
         _, observacion = interpretar_notas(campo(EQ_NOTAS))
+        cambios: dict = {
+            "etiqueta": campo(EQ_ETIQUETA) or rack.etiqueta,
+            "ubicacion_descriptiva": campo(EQ_UBICACION) or rack.ubicacion_descriptiva,
+            "numero_recinto": self._numero_recinto(campo(EQ_UBICACION), piso.codigo, archivo),
+            "estado_operativo": normalizar_estado(campo(EQ_ESTADO_OP)),
+            "estado_condicion": normalizar_condicion(campo(EQ_ESTADO_COND)),
+            "observaciones": observacion or campo(EQ_MODELO) or None,
+            "atributos": {**(rack.atributos or {}), "tipo_rack": "cerrado"},
+        }
+        codigo_anterior = rack.codigo
+        tramo_id = tramo.id if tramo else None
+        if (rack.piso_id, rack.tramo_id) != (piso.id, tramo_id):
+            cambios.update(
+                codigo=self._codigo_unico(
+                    construir_codigo(
+                        edificio=self.edificio.codigo,
+                        tipo="R",
+                        correlativo=rack.correlativo,
+                        piso=piso.codigo,
+                        tramo=tramo.codigo if tramo else None,
+                    ),
+                    archivo,
+                ),
+                piso_id=piso.id,
+                tramo_id=tramo_id,
+                tramo_lamina_id=None,
+                plano_id=None,
+                pos_x=None,
+                pos_y=None,
+            )
         registrar_cambios(
             self.sesion,
             rack,
-            {
-                "etiqueta": campo(EQ_ETIQUETA) or rack.etiqueta,
-                "ubicacion_descriptiva": campo(EQ_UBICACION) or rack.ubicacion_descriptiva,
-                "estado_operativo": normalizar_estado(campo(EQ_ESTADO_OP)),
-                "estado_condicion": normalizar_condicion(campo(EQ_ESTADO_COND)),
-                "observaciones": observacion or campo(EQ_MODELO) or None,
-                "atributos": {**(rack.atributos or {}), "tipo_rack": "cerrado"},
-            },
+            cambios,
             origen=OrigenCambio.IMPORTACION,
             usuario="importacion",
             comentario=f"Ficha del rack completada con {archivo}",
         )
-        self.resultado.racks_completados.append(rack.codigo)
+        self.sesion.flush()
+        self.sesion.expire(rack, ["piso", "tramo", "tramo_lamina"])
+        if codigo_anterior in self.resultado.racks_inferidos:
+            self.resultado.racks_inferidos.remove(codigo_anterior)
+        self.resultado.racks_completados.append(
+            rack.codigo if rack.codigo == codigo_anterior else f"{codigo_anterior} → {rack.codigo}"
+        )
 
     def _rack(self, numero: int, piso: Piso, tramo: Tramo | None) -> Elemento:
         """Devuelve el rack; lo crea como inferido si no está documentado."""
@@ -763,8 +861,10 @@ class Importador:
                 return
             if numero_rack in self.racks:
                 existente = self.racks[numero_rack]
-                if self.agregar and existente.observaciones == OBSERVACION_RACK_INFERIDO:
-                    self._completar_rack(existente, campo, archivo)
+                # Inferido en una pasada anterior (--agregar) o en esta, desde
+                # la planilla de otro piso que se leyó antes.
+                if existente.observaciones == OBSERVACION_RACK_INFERIDO:
+                    self._completar_rack(existente, campo, archivo, piso, tramo)
                     return
                 self.resultado.advertencias.append(
                     f"{archivo}: el rack {numero_rack} aparece más de una vez"
@@ -794,6 +894,16 @@ class Importador:
         padre = None
         if codigo_tipo != "R" and numero_rack is not None:
             padre = self._rack(numero_rack, piso, tramo)
+            if padre.piso_id != piso.id:
+                # Un equipo no se monta en el rack de otro piso: se ubica por
+                # su cuenta y la planilla queda como observación.
+                self.resultado.advertencias.append(
+                    f"{archivo}: {campo(EQ_ETIQUETA) or campo(EQ_MODELO)} "
+                    f"({campo(EQ_UBICACION) or 'sin ubicación'}) declara el {etiqueta_rack}, "
+                    f"que está en otro piso ({padre.codigo}); no se montó en él"
+                )
+                observacion = _observacion_rack_ajeno(observacion, etiqueta_rack, padre.codigo)
+                padre = None
 
         elemento = self._crear(
             codigo=codigo,
@@ -804,6 +914,7 @@ class Importador:
             padre_id=padre.id if padre else None,
             etiqueta=campo(EQ_ETIQUETA) or None,
             ubicacion_descriptiva=campo(EQ_UBICACION) or None,
+            numero_recinto=self._numero_recinto(campo(EQ_UBICACION), piso.codigo, archivo),
             estado_operativo=normalizar_estado(campo(EQ_ESTADO_OP)),
             estado_condicion=normalizar_condicion(campo(EQ_ESTADO_COND)),
             marca=marca,
@@ -853,16 +964,14 @@ class Importador:
                 )
                 continue
 
-            coincidencia_ubicacion = RE_PISO_TRAMO.search(campo(PD_UBICACION))
-            if not coincidencia_ubicacion:
+            ubicacion = piso_y_tramo(campo(PD_UBICACION))
+            if ubicacion is None:
                 self.resultado.advertencias.append(
                     f"{self.archivo_puntos} fila {numero_fila}: ubicación ilegible "
                     f"'{campo(PD_UBICACION)}'"
                 )
                 continue
-            codigo_piso = f"P{int(coincidencia_ubicacion.group(1)):02d}"
-            tramo_ubicacion = coincidencia_ubicacion.group(2)
-            codigo_tramo = f"T{int(tramo_ubicacion)}" if tramo_ubicacion else None
+            codigo_piso, codigo_tramo = ubicacion
 
             rotulo = campo(PD_ETIQUETA)
             partes = RE_ROTULO_PD.match(rotulo)
@@ -870,7 +979,8 @@ class Importador:
             puerto: str | None = None
 
             if partes:
-                piso_rotulo = f"P{int(partes.group(1)):02d}"
+                # Sin número de piso es un rótulo del subterráneo (SUB-…).
+                piso_rotulo = f"P{int(partes.group(1) or 0):02d}"
                 tramo_rotulo = f"T{int(partes.group(2))}" if partes.group(2) else None
                 numero_rack = int(partes.group(3))
                 puerto = partes.group(4).strip().upper()
@@ -884,7 +994,8 @@ class Importador:
             elif rotulo and rotulo.lower() != "sin etiqueta":
                 self.resultado.advertencias.append(
                     f"{self.archivo_puntos} fila {numero_fila}: rótulo '{rotulo}' no sigue el "
-                    "patrón P<piso>-T<tramo>-R<rack>-<puerto> (o P<piso>-R<rack>-<puerto>)"
+                    "patrón P<piso>-T<tramo>-R<rack>-<puerto> (o P<piso>-R<rack>-<puerto>, "
+                    "o SUB-R<rack>-<puerto> en el subterráneo)"
                 )
 
             piso = self.territorio.piso(codigo_piso)
@@ -934,6 +1045,9 @@ class Importador:
                 tramo_id=tramo.id if tramo else None,
                 etiqueta=rotulo or None,
                 ubicacion_descriptiva=recinto,
+                numero_recinto=self._numero_recinto(
+                    recinto, piso.codigo, f"{self.archivo_puntos} fila {numero_fila}"
+                ),
                 estado_operativo=estado,
                 estado_condicion=normalizar_condicion(campo(PD_ESTADO_COND)),
                 observaciones=campo(PD_NOTAS) or None,
@@ -978,15 +1092,10 @@ class Importador:
         conteo_global: dict[tuple[str, str, str], int] = defaultdict(int)
         for fila in filas:
             codigo_tipo = normalizar_tipo(fila[1] if len(fila) > 1 else "")
-            coincidencia = RE_PISO_TRAMO.search(fila[2] if len(fila) > 2 else "")
-            if codigo_tipo is None or coincidencia is None:
+            ubicacion = piso_y_tramo(fila[2] if len(fila) > 2 else "")
+            if codigo_tipo is None or ubicacion is None:
                 continue
-            clave = (
-                f"P{int(coincidencia.group(1)):02d}",
-                f"T{int(coincidencia.group(2))}" if coincidencia.group(2) else "—",
-                codigo_tipo,
-            )
-            conteo_global[clave] += 1
+            conteo_global[ubicacion[0], ubicacion[1] or "—", codigo_tipo] += 1
 
         conteo_actual: dict[tuple[str, str, str], int] = defaultdict(int)
         for elemento in self.sesion.scalars(
@@ -1011,6 +1120,43 @@ class Importador:
                     f"consolidada {esperado}, planillas por tramo {obtenido}"
                 )
 
+    def revisar_montajes(self) -> None:
+        """Lo montado en un rack de otro piso se desmonta.
+
+        Pasa cuando un rack inferido desde los rótulos de un piso aparece en
+        la planilla de otro (ver ``_completar_rack``): lo que se había montado
+        en él no puede verse a través de un marcador que está en otra lámina.
+        Se ubica por su cuenta y la planilla queda como observación.
+        """
+        self.sesion.flush()
+        montados = self.sesion.scalars(
+            select(Elemento).where(
+                Elemento.edificio_id == self.edificio.id, Elemento.padre_id.is_not(None)
+            )
+        ).unique()
+        for elemento in montados:
+            padre = elemento.padre
+            if not elemento.montado or padre.piso_id == elemento.piso_id:
+                continue
+            rack = f"Rack-{padre.correlativo:02d}" if padre.correlativo is not None else padre.codigo
+            self.resultado.advertencias.append(
+                f"{elemento.codigo} ({elemento.ubicacion_descriptiva or 'sin ubicación'}) estaba "
+                f"montado en {padre.codigo}, que está en otro piso; se desmontó"
+            )
+            registrar_cambios(
+                self.sesion,
+                elemento,
+                {
+                    "padre_id": None,
+                    "observaciones": _observacion_rack_ajeno(
+                        elemento.observaciones, rack, padre.codigo
+                    ),
+                },
+                origen=OrigenCambio.IMPORTACION,
+                usuario="importacion",
+                comentario="Su rack está en otro piso",
+            )
+
     def asignar_laminas(self) -> None:
         """Aplica ``<p>-laminas.csv`` a lo que lleva marcador propio; lo
         montado sigue la lámina de su rack."""
@@ -1029,6 +1175,7 @@ class Importador:
         self.importar_vlans()
         self.importar_equipos()
         self.importar_puntos_de_datos()
+        self.revisar_montajes()
         self.asignar_laminas()
         self.contrastar_con_global()
         return self.resultado
@@ -1098,27 +1245,77 @@ def _informar(resultado: Resultado, completo: bool) -> None:
             print(f"  - {aviso}")
 
 
+def ubicar_en_recintos(codigo_edificio: str, dir_datos: Path) -> None:
+    """Ubica en su recinto lo que no está en el plano, si el edificio ya tiene
+    láminas (ver ``app.servicios.recintos``). En una primera carga todavía no
+    las tiene: lo hace ``cargar_planos`` al cargarlas."""
+    with SesionLocal() as sesion:
+        edificio = sesion.scalar(select(Edificio).where(Edificio.codigo == codigo_edificio.upper()))
+        hay_laminas = sesion.scalar(
+            select(func.count(Plano.id))
+            .join(Piso, Plano.piso_id == Piso.id)
+            .where(Piso.edificio_id == edificio.id, Plano.vigente.is_(True))
+        )
+        if not hay_laminas:
+            return
+        recintos, ubicacion = sincronizar_y_ubicar(sesion, edificio, dir_datos)
+        sesion.commit()
+    lineas = lineas_informe(recintos, ubicacion)
+    if lineas:
+        print("\nUbicación en los planos")
+        for linea in lineas:
+            print(f"  {linea}")
+
+
+def registrar_levantamientos(codigo_edificio: str, dir_datos: Path) -> None:
+    """Aplica ``<código>-levantamiento.csv``: la bitácora de visitas a terreno y
+    la fecha del último levantamiento de cada elemento. Es idempotente."""
+    ruta = ruta_levantamientos(dir_datos, codigo_edificio)
+    try:
+        visitas = leer_levantamientos(ruta)
+    except ArchivoLevantamientoInvalido as exc:
+        print(f"\n{ruta.name}: no se aplicó. {exc}")
+        return
+    if not visitas:
+        return
+    with SesionLocal() as sesion:
+        edificio = sesion.scalar(select(Edificio).where(Edificio.codigo == codigo_edificio.upper()))
+        if edificio is None:
+            return
+        informe = aplicar_levantamientos(sesion, edificio, visitas)
+        sesion.commit()
+    if informe.visitas_nuevas or informe.elementos_fechados:
+        print(
+            f"\nLevantamiento: {informe.visitas_nuevas} visita(s) nueva(s) en la bitácora; "
+            f"fecha del último levantamiento en {informe.elementos_fechados} elementos"
+        )
+
+
 def importar_pendientes() -> None:
     """Importa los edificios con carpeta en ``data/`` que aún no tienen elementos.
 
     Es lo que corre ``iniciar.sh``: nunca reemplaza lo ya importado, y una
-    carpeta con problemas se informa sin detener a las demás.
+    carpeta con problemas se informa sin detener a las demás. Las fechas de
+    levantamiento se aplican también a los ya importados.
     """
     for codigo in edificios_con_planillas():
+        resultado = None
         with SesionLocal() as sesion:
             try:
                 existentes = contar_elementos(sesion, codigo)
                 if existentes:
                     print(f"{codigo}: ya tiene {existentes} elementos; no se reimporta.")
-                    continue
-                print(f"{codigo}: importando desde {dir_datos_de(codigo)}")
-                resultado = Importador(sesion, dir_datos_de(codigo), codigo).ejecutar()
-                sesion.commit()
+                else:
+                    print(f"{codigo}: importando desde {dir_datos_de(codigo)}")
+                    resultado = Importador(sesion, dir_datos_de(codigo), codigo).ejecutar()
+                    sesion.commit()
             except SystemExit as exc:
                 sesion.rollback()
                 print(f"{codigo}: no se importó. {exc}")
                 continue
-        _informar(resultado, completo=True)
+        if resultado is not None:
+            _informar(resultado, completo=True)
+        registrar_levantamientos(codigo, dir_datos_de(codigo))
 
 
 def main(argumentos: list[str] | None = None) -> None:
@@ -1163,6 +1360,7 @@ def main(argumentos: list[str] | None = None) -> None:
     if not dir_datos.is_dir():
         raise SystemExit(f"No existe la carpeta de planillas {dir_datos}")
 
+    importado = False
     with SesionLocal() as sesion:
         if args.solo_advertencias:
             # Se importa dentro de la transacción y se descarta todo: así el
@@ -1175,6 +1373,7 @@ def main(argumentos: list[str] | None = None) -> None:
         elif args.agregar:
             resultado = Importador(sesion, dir_datos, codigo, agregar=True).ejecutar()
             sesion.commit()
+            importado = True
         else:
             existentes = contar_elementos(sesion, codigo)
             if existentes and not args.recargar:
@@ -1191,8 +1390,12 @@ def main(argumentos: list[str] | None = None) -> None:
 
             resultado = Importador(sesion, dir_datos, codigo).ejecutar()
             sesion.commit()
+            importado = True
 
     _informar(resultado, completo=not args.solo_advertencias)
+    if importado:
+        registrar_levantamientos(codigo, dir_datos)
+        ubicar_en_recintos(codigo, dir_datos)
 
 
 if __name__ == "__main__":

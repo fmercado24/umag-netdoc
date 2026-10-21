@@ -669,6 +669,17 @@ code {
   margin: 12px 0;
 }
 
+/* Ubicar a mano y, si tiene recinto, ubicar en él: lado a lado. */
+.acciones__botones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.acciones__botones > .boton {
+  flex: 1 1 auto;
+}
+
 .boton {
   padding: 7px 12px;
   border: 0;

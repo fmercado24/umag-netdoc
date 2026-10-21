@@ -54,6 +54,18 @@ export interface Plano {
   teselas: Teselas | null
 }
 
+/** Sala dibujada en una lámina, con el punto donde se ubican sus elementos. */
+export interface Recinto {
+  /** Como lo rotula el plano: "1083", "0017". */
+  numero: string
+  nombre: string | null
+  plano_id: number
+  /** Tramo de la lámina donde está; nulo si la lámina cubre el piso completo. */
+  tramo_codigo: string | null
+  pos_x: number
+  pos_y: number
+}
+
 export interface Piso {
   id: number
   edificio_id: number
@@ -109,6 +121,8 @@ export interface ElementoMapa {
   /** Tramo de la lámina donde se dibuja; puede no ser el de su código. */
   tramo_lamina_codigo: string | null
   ubicacion_descriptiva: string | null
+  /** Número de la sala donde está; con él se ubica solo en el plano. */
+  numero_recinto: string | null
   marca: string | null
   modelo: string | null
   direccion_ip: string | null
@@ -192,6 +206,8 @@ export interface ElementoDetalle extends Elemento {
   vlans: VlanElemento[]
   externos: IdentificadorExterno[]
   completitud: Completitud | null
+  /** Su recinto en las láminas del piso; nulo si no tiene número o no aparece en ellas. */
+  recinto_en_plano: Recinto | null
   creado_en: string
   actualizado_en: string
 }

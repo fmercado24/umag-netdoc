@@ -8,6 +8,7 @@ import type {
   Enumeraciones,
   HistorialEntrada,
   Piso,
+  Recinto,
   RespuestaMapa,
   TipoElemento,
 } from '../types'
@@ -60,6 +61,10 @@ export const api = {
 
   pisos: (edificio: string) => pedir<Piso[]>(`/edificios/${edificio}/pisos`),
 
+  /** Recintos de las láminas del piso: los números de sala que se pueden asignar. */
+  recintos: (edificio: string, piso: string) =>
+    pedir<Recinto[]>(`/edificios/${edificio}/pisos/${piso}/recintos`),
+
   tipos: () => pedir<TipoElemento[]>('/catalogo/tipos'),
 
   ficha: (codigoTipo: string) =>
@@ -94,6 +99,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(datos),
     }),
+
+  /** Lo lleva al recinto de su número, en la lámina donde está dibujado. */
+  ubicarEnRecinto: (idOCodigo: string | number) =>
+    pedir<ElementoDetalle>(`/elementos/${idOCodigo}/ubicar-en-recinto`, { method: 'POST' }),
 
   actualizarElemento: (idOCodigo: string | number, datos: Record<string, unknown>) =>
     pedir<ElementoDetalle>(`/elementos/${idOCodigo}`, {
