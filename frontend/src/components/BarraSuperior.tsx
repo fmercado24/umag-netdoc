@@ -10,6 +10,8 @@ interface Props {
   pisoSel: string
   tramoSel: string
   busqueda: string
+  usuario: string
+  onSalir: () => void
   onEdificio: (codigo: string) => void
   onPiso: (codigo: string) => void
   onTramo: (codigo: string) => void
@@ -23,6 +25,8 @@ export function BarraSuperior({
   pisoSel,
   tramoSel,
   busqueda,
+  usuario,
+  onSalir,
   onEdificio,
   onPiso,
   onTramo,
@@ -108,6 +112,12 @@ export function BarraSuperior({
       <div className="institucion">
         <img className="institucion__logo" src={logoUmag} alt="Universidad de Magallanes" />
         {edificio?.campus && <div className="campus">Campus {edificio.campus}</div>}
+        <div className="campus">
+          {usuario} ·{' '}
+          <button className="boton-enlace" onClick={onSalir}>
+            Salir
+          </button>
+        </div>
       </div>
     </header>
   )

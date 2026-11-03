@@ -26,14 +26,23 @@ Las dos opciones son independientes: puede usar **Prometheus + Grafana**, la
    NETDOC_MONITOREO_TOKEN=<el token>
    ```
    Reinicie NetDoc (`Ctrl+C` y `./iniciar.sh`). Sin token, NetDoc rechaza los
-   avisos de estado (responde 503).
-3. **Red.** El servidor de monitoreo debe llegar a NetDoc (puerto 8000) y a las
-   IP de gestión de los equipos; Zabbix y Alertmanager deben poder enviar a
-   NetDoc.
+   avisos de estado (responde 503) y las lecturas de métricas e inventario
+   (responde 401). **No lo escriba en los archivos de `deploy/`:** están
+   versionados, y Docker lo entrega a los contenedores desde `.env`.
+3. **Red.** El servidor de monitoreo debe llegar a NetDoc (puerto 8000, por
+   **HTTPS**) y a las IP de gestión de los equipos; Zabbix y Alertmanager deben
+   poder enviar a NetDoc. Hacia la red, NetDoc solo atiende con
+   `NETDOC_API_HOST=0.0.0.0 ./iniciar.sh`, que genera un certificado autofirmado
+   en `backend/certs/netdoc.crt` si no hay uno propio
+   ([seguridad](seguridad.md#acceso-desde-otros-equipos-https)).
 
 ---
 
 ## Opción A: Prometheus + Alertmanager + Grafana (con Docker)
+
+Si NetDoc está instalado con `instalar-servidor.sh`, siga además la
+[sección de monitoreo de esa guía](instalacion-servidor.md#11-monitoreo): NetDoc ya atiende en
+la red y el token va en `/etc/netdoc/netdoc.env`.
 
 Cuatro servicios definidos en el perfil `monitoreo` de `docker-compose.yml`:
 
@@ -43,6 +52,14 @@ Cuatro servicios definidos en el perfil `monitoreo` de `docker-compose.yml`:
 | blackbox | — | Hace ping a cada elemento con IP que Prometheus descubre en NetDoc |
 | Alertmanager | 9093 | Recibe las alertas y avisa a NetDoc (y, si se configura, por correo) |
 | Grafana | 3000 | Panel "NetDoc — Inventario y estado" |
+
+Los puertos se publican **solo en el propio servidor** (`127.0.0.1`): Prometheus y
+Alertmanager no piden credenciales y muestran las IP del inventario. Desde otro
+equipo, abra un túnel y use `http://localhost:<puerto>`:
+
+```bash
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 usuario@servidor
+```
 
 ### A.1 Instalar Docker (una vez)
 
@@ -56,23 +73,24 @@ docker compose version               # debe responder "Docker Compose version v2
 
 ### A.2 Configurar
 
-1. **Clave de Grafana**, en el mismo `.env`:
+1. **Clave de Grafana**, en el mismo `.env`. No tiene valor por omisión: sin ella
+   Grafana no arranca.
    ```
    NETDOC_GRAFANA_CLAVE=<una clave segura>
    ```
-2. **Token en Alertmanager** (el mismo `NETDOC_MONITOREO_TOKEN`):
-   ```bash
-   sed -i "s/CAMBIAR_POR_NETDOC_MONITOREO_TOKEN/<el token>/" deploy/alertmanager/alertmanager.yml
-   ```
-3. **Si NetDoc corre en otro equipo** que Docker, reemplace
+2. **Si NetDoc corre en otro equipo** que Docker, reemplace
    `host.docker.internal` por la IP o el nombre de ese equipo en
    `deploy/prometheus/prometheus.yml` (dos lugares) y en
-   `deploy/alertmanager/alertmanager.yml` (uno).
+   `deploy/alertmanager/alertmanager.yml` (uno), y copie su
+   `backend/certs/netdoc.crt` a la misma ruta del equipo con Docker. El
+   certificado que genera `iniciar.sh` ya incluye el nombre y las IP del equipo
+   donde corre NetDoc.
 
 ### A.3 Levantar
 
 ```bash
-# Terminal 1: NetDoc escuchando en la red, para que los contenedores lo alcancen
+# Terminal 1: NetDoc por HTTPS en la red, para que los contenedores lo alcancen.
+# Debe ir primero: genera el certificado con que Prometheus y Alertmanager lo reconocen.
 NETDOC_API_HOST=0.0.0.0 ./iniciar.sh --sin-navegador
 
 # Terminal 2
@@ -80,7 +98,7 @@ docker compose --profile monitoreo up -d
 docker compose --profile monitoreo ps      # los cuatro en estado "running"/"Up"
 ```
 
-### A.4 Verificar Prometheus — `http://<servidor>:9090`
+### A.4 Verificar Prometheus — `http://localhost:9090`
 
 1. *Status → Target health*:
    - `netdoc`: **1 objetivo UP** (las métricas de NetDoc).
@@ -102,7 +120,7 @@ docker compose --profile monitoreo ps      # los cuatro en estado "running"/"Up"
 
 Un edificio nuevo entra solo: el descubrimiento se repite cada 5 minutos.
 
-### A.5 Grafana — `http://<servidor>:3000`
+### A.5 Grafana — `http://localhost:3000`
 
 1. Ingrese con `admin` y la clave de `NETDOC_GRAFANA_CLAVE`.
 2. *Dashboards → NetDoc → **NetDoc — Inventario y estado***.
@@ -144,7 +162,7 @@ Antes de intervenir un equipo:
 1. En NetDoc: ficha → **Editar** → *Estado operativo* = **En mantenimiento**
    (comentario: el motivo). NetDoc ignorará los avisos de caída.
 2. Opcional, para no recibir la alerta: en Alertmanager
-   (`http://<servidor>:9093`) → *New Silence* → matcher
+   (`http://localhost:9093`) → *New Silence* → matcher
    `netdoc_codigo="ING-SW01-P01-T1"` → duración.
 
 Al terminar, vuelva el estado a **Activo / En línea**.
@@ -222,7 +240,7 @@ Zabbix avisa a NetDoc cuando un host entra en problema o se recupera.
 
      | Name | Value |
      |---|---|
-     | `netdoc_url` | `http://<servidor-netdoc>:8000/api/v1/integraciones/monitoreo/estado` |
+     | `netdoc_url` | `https://<servidor-netdoc>:8000/api/v1/integraciones/monitoreo/estado` |
      | `netdoc_token` | el `NETDOC_MONITOREO_TOKEN` |
      | `host` | `{HOST.HOST}` |
      | `ip` | `{HOST.IP}` |
@@ -309,13 +327,19 @@ notificaciones durante la intervención.
 |---|---|---|
 | Target `netdoc` DOWN: *connection refused* | NetDoc escucha solo en 127.0.0.1 | Arrancar con `NETDOC_API_HOST=0.0.0.0 ./iniciar.sh` |
 | Target DOWN: *no such host host.docker.internal* | Docker antiguo o NetDoc en otro equipo | Reemplazar `host.docker.internal` (sección A.2) |
-| `netdoc-ping` sin objetivos | Ningún elemento tiene IP de gestión | Cargar IP (sección "Antes de empezar") |
+| Target `netdoc` DOWN: *401 Unauthorized* | `NETDOC_MONITOREO_TOKEN` faltaba o cambió | Revisar `.env`, y reiniciar NetDoc y `docker compose --profile monitoreo up -d --force-recreate` |
+| Target DOWN: *certificate signed by unknown authority* | `backend/certs/netdoc.crt` cambió o no es el de NetDoc | Volver a crear los contenedores (como arriba) |
+| Target DOWN: *server gave HTTP response to HTTPS client* | NetDoc arrancó sin `NETDOC_API_HOST` | Arrancar con `NETDOC_API_HOST=0.0.0.0 ./iniciar.sh` |
+| `docker compose` crea una **carpeta** `backend/certs/netdoc.crt` | Se levantó el monitoreo antes que NetDoc | Borrar esa carpeta y levantar primero NetDoc (A.3) |
+| `netdoc-ping` sin objetivos | Ningún elemento tiene IP de gestión, o falta el token | Cargar IP (sección "Antes de empezar"); revisar `.env` |
 | Todos los ping fallan | blackbox sin permiso ICMP o sin ruta a los equipos | Revisar `cap_add: NET_RAW` y la red del servidor |
 | Grafana dice *No data* | Prometheus aún no reúne datos o no llega a NetDoc | Revisar *Target health*; esperar un par de minutos |
 | La alerta llega a Alertmanager pero NetDoc no cambia | Token distinto o NetDoc inalcanzable | `docker compose --profile monitoreo logs alertmanager`; revisar el token de A.2 |
-| NetDoc responde **401** | Token incorrecto | Mismo valor en `.env`, en Alertmanager y en Zabbix |
+| NetDoc responde **401** | Token incorrecto | Mismo valor en `.env` y en Zabbix |
+| NetDoc responde **403** *solo atiende por HTTPS* | Se llamó por `http://` desde otro equipo | Usar `https://` |
 | NetDoc responde **503** | `NETDOC_MONITOREO_TOKEN` vacío | Definirlo y reiniciar NetDoc |
 | El elemento no cambia de estado | Está **en mantenimiento** | Volverlo a activo cuando termine la intervención |
+| Zabbix informa un error de certificado (SSL) | Certificado autofirmado de NetDoc | Copiar `backend/certs/netdoc.crt` al servidor de Zabbix, en `/usr/local/share/ca-certificates/`, y ejecutar `sudo update-ca-certificates` |
 | Zabbix no vuelve el elemento a activo | Faltan las *Recovery operations* | Agregarlas en la acción (B.1) |
 | `sincronizar zabbix`: *Zabbix rechazó hostgroup.create* | El token no es de Super admin | Ver B.2, paso 1 |
 | `sincronizar zabbix`: *No existen en Zabbix las plantillas* | Nombre distinto en su Zabbix | Copiar el nombre exacto desde *Data collection → Templates* |
@@ -324,10 +348,10 @@ notificaciones durante la intervención.
 
 | Servicio | Dirección |
 |---|---|
-| Visor NetDoc | `http://<servidor>:5173` |
-| API NetDoc y su documentación | `http://<servidor>:8000/docs` |
-| Métricas de NetDoc | `http://<servidor>:8000/metrics` |
-| Objetivos para Prometheus | `http://<servidor>:8000/api/v1/integraciones/prometheus/objetivos` |
-| Prometheus | `http://<servidor>:9090` |
-| Alertmanager | `http://<servidor>:9093` |
-| Grafana | `http://<servidor>:3000` |
+| Visor NetDoc | `https://<servidor>:8000` |
+| API NetDoc y su documentación (tras ingresar en el visor) | `https://<servidor>:8000/docs` |
+| Métricas de NetDoc (con sesión o token) | `https://<servidor>:8000/metrics` |
+| Objetivos para Prometheus (con sesión o token) | `https://<servidor>:8000/api/v1/integraciones/prometheus/objetivos` |
+| Prometheus (en el servidor o por túnel) | `http://localhost:9090` |
+| Alertmanager (en el servidor o por túnel) | `http://localhost:9093` |
+| Grafana (en el servidor o por túnel) | `http://localhost:3000` |

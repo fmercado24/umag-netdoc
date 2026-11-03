@@ -7,13 +7,13 @@
   Prometheus: el inventario le dice qué IP vigilar y con qué etiquetas.
 
 Las escrituras exigen el token de ``NETDOC_MONITOREO_TOKEN``, en la cabecera
-``X-NetDoc-Token`` o como ``Authorization: Bearer``.
+``X-NetDoc-Token`` o como ``Authorization: Bearer``. Las lecturas, ese mismo
+token o la sesión del administrador (``app.servicios.autenticacion``).
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import hmac
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -23,6 +23,7 @@ from app.api.deps import SesionBD
 from app.core.config import configuracion
 from app.models import Edificio, Elemento, EstadoOperativo, TipoElemento
 from app.schemas.elemento import EstadoMonitoreo
+from app.servicios.autenticacion import token_monitoreo_valido
 from app.servicios.monitoreo import (
     EstadoNoReconocido,
     aplicar_evento,
@@ -39,9 +40,7 @@ def _verificar_token(token: str | None, authorization: str | None) -> None:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "La integración de monitoreo está deshabilitada: defina NETDOC_MONITOREO_TOKEN",
         )
-    if not token and authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    if not token or not hmac.compare_digest(token, configuracion.monitoreo_token):
+    if not token_monitoreo_valido(token, authorization):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de monitoreo inválido")
 
 

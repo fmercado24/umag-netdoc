@@ -17,7 +17,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import Select, func, or_, select
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased, object_session
 
 from app.api.deps import (
     SesionBD,
@@ -32,9 +32,12 @@ from app.models import (
     Edificio,
     Elemento,
     ElementoVlan,
+    Enlace,
     EstadoCondicion,
     EstadoOperativo,
+    HistorialElemento,
     IdentificadorExterno,
+    MedioEnlace,
     OrigenCambio,
     Piso,
     TipoElemento,
@@ -43,6 +46,7 @@ from app.models import (
 )
 from app.models.elemento import TIPOS_CONECTADOS_AL_CONTENEDOR
 from app.schemas.elemento import (
+    CambioDeCodigo,
     CompletitudLeer,
     ElementoActualizar,
     ElementoCrear,
@@ -56,15 +60,24 @@ from app.schemas.elemento import (
     IdentificadorExternoLeer,
     PaginaElementos,
     PosicionActualizar,
+    PrevioTraslado,
     RespuestaMapa,
+    TrasladoPedido,
 )
 from app.schemas.logico import VlanAsignar
 from app.schemas.organizacion import PlanoLeer, RecintoLeer
 from app.servicios.codigos import (
+    RE_ROTULO_PD,
+    SERVICIOS_POR_PREFIJO,
     CodigoInvalido,
+    codigo_ocupado,
     construir_codigo,
     descomponer_codigo,
+    detalle_de_puerto,
+    elemento_por_codigo,
+    rotulo_de_puerto,
     siguiente_correlativo,
+    siguiente_sin_rotulo,
 )
 from app.servicios.fotografias import FormatoFotoNoAdmitido, guardar_fotografia
 from app.servicios.historial import registrar_alta, registrar_cambios
@@ -77,6 +90,12 @@ from app.servicios.recintos import (
     ubicar_en_recinto,
     ubicar_pendientes,
 )
+from app.servicios.traslados import (
+    TrasladoInvalido,
+    conserva_posicion,
+)
+from app.servicios.traslados import ejecutar as ejecutar_traslado
+from app.servicios.traslados import planificar as planificar_traslado
 from app.servicios.validacion import (
     AtributosInvalidos,
     evaluar_completitud,
@@ -106,6 +125,7 @@ def _aplicar_filtros(
     q: str | None,
     con_coordenadas: bool | None,
     solo_activos: bool,
+    solo_eliminados: bool = False,
 ) -> Select:
     ed = aliased(Edificio)
     pi = aliased(Piso)
@@ -121,7 +141,9 @@ def _aplicar_filtros(
         .outerjoin(padre, Elemento.padre_id == padre.id)
     )
 
-    if solo_activos:
+    if solo_eliminados:
+        consulta = consulta.where(Elemento.activo.is_(False))
+    elif solo_activos:
         consulta = consulta.where(Elemento.activo.is_(True))
     if edificio:
         consulta = consulta.where(ed.codigo == edificio.upper())
@@ -258,12 +280,25 @@ def _armar_hijo(hijo: Elemento) -> dict:
     }
 
 
+def _enlace_de_origen(sesion: Session, punto: Elemento) -> Enlace | None:
+    """El mapeo puerto del rack → punto de datos (SOP §9.2.3)."""
+    enlaces = sesion.scalars(
+        select(Enlace).where(Enlace.destino_id == punto.id).order_by(Enlace.id)
+    )
+    return next((e for e in enlaces if e.origen.tipo.es_contenedor), None)
+
+
 def _armar_detalle(elemento: Elemento) -> ElementoDetalle:
     completitud = evaluar_completitud(elemento)
     recinto = buscar_recinto(elemento)
     datos = ElementoLeer.model_validate(elemento).model_dump()
+    enlace = None
+    if not elemento.tipo.usa_correlativo:
+        enlace = _enlace_de_origen(object_session(elemento), elemento)
     datos.update(
         {
+            "rack_origen_codigo": enlace.origen.codigo if enlace else None,
+            "puerto_en_rack": enlace.puerto_origen if enlace else None,
             "direccion_mac": elemento.direccion_mac,
             "fecha_instalacion": elemento.fecha_instalacion,
             "fecha_ultimo_levantamiento": elemento.fecha_ultimo_levantamiento,
@@ -313,6 +348,7 @@ def listar_elementos(
     q: str | None = Query(default=None, description="Búsqueda libre"),
     con_coordenadas: bool | None = None,
     solo_activos: bool = True,
+    solo_eliminados: bool = Query(default=False, description="Solo los dados de baja"),
     limite: int = Query(default=200, ge=1, le=1000),
     desplazamiento: int = Query(default=0, ge=0),
 ):
@@ -327,6 +363,7 @@ def listar_elementos(
         q=q,
         con_coordenadas=con_coordenadas,
         solo_activos=solo_activos,
+        solo_eliminados=solo_eliminados,
     )
     consulta = _aplicar_filtros(select(Elemento), **filtros)
     total = sesion.scalar(
@@ -404,6 +441,42 @@ def obtener_mapa(sesion: SesionBD, edificio: str, piso: str, tramo: str | None =
     )
 
 
+@router.get("/proximo-codigo")
+def proximo_codigo(
+    sesion: SesionBD,
+    tipo: str,
+    edificio: str,
+    piso: str,
+    tramo: str | None = None,
+    rack_origen: str | None = None,
+    puerto: str | None = None,
+    para: int | None = Query(default=None, description="Id del elemento que se está editando"),
+):
+    """El código que recibiría un alta con estos datos, sin crear nada.
+
+    Con ``para``, el que recibiría ese elemento: un código que tuvo puede recuperarlo.
+    """
+    edificio_sel = obtener_edificio(sesion, edificio)
+    piso_sel = obtener_piso(sesion, edificio_sel, piso)
+    codigo, _ = _codigo_generado(
+        sesion,
+        tipo=obtener_tipo(sesion, tipo),
+        edificio=edificio_sel,
+        piso=piso_sel,
+        tramo=obtener_tramo(sesion, piso_sel, tramo),
+        rack=_rack_de_origen(sesion, edificio_sel, rack_origen) if rack_origen else None,
+        puerto=puerto,
+    )
+    dueno = elemento_por_codigo(sesion, codigo)
+    ajeno = dueno is not None and dueno.id != para
+    return {
+        "codigo": codigo,
+        "disponible": not ajeno,
+        # Se puede recuperar desde «Eliminados»: un código no se reutiliza.
+        "eliminado": ajeno and not dueno.activo,
+    }
+
+
 @router.get("/{id_o_codigo}", response_model=ElementoDetalle)
 def obtener_detalle(id_o_codigo: str, sesion: SesionBD):
     return _armar_detalle(obtener_elemento(sesion, id_o_codigo))
@@ -466,6 +539,54 @@ def obtener_historial(id_o_codigo: str, sesion: SesionBD, limite: int = Query(10
 # --------------------------------------------------------------------------
 # Escritura
 # --------------------------------------------------------------------------
+def _exigir_rack_vigente(rack: Elemento) -> None:
+    """Lo montado se ve a través de su rack: en uno eliminado, no se vería."""
+    if not rack.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"'{rack.codigo}' está eliminado")
+
+
+def _rack_de_origen(sesion: Session, edificio: Edificio, codigo: str) -> Elemento:
+    rack = obtener_elemento(sesion, codigo)
+    _exigir_rack_vigente(rack)
+    if not rack.tipo.es_contenedor or rack.edificio_id != edificio.id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"'{rack.codigo}' no es un rack del edificio {edificio.codigo}",
+        )
+    return rack
+
+
+def _codigo_generado(
+    sesion: Session,
+    *,
+    tipo: TipoElemento,
+    edificio: Edificio,
+    piso: Piso,
+    tramo: Tramo | None,
+    rack: Elemento | None,
+    puerto: str | None,
+) -> tuple[str, int | None]:
+    """Código según la convención del SOP sección 8, y su correlativo si lleva."""
+    ubicacion = {
+        "edificio": edificio.codigo,
+        "tipo": tipo.codigo,
+        "piso": piso.codigo,
+        "tramo": tramo.codigo if tramo else None,
+    }
+    if tipo.usa_correlativo:
+        correlativo = siguiente_correlativo(
+            sesion, edificio_id=edificio.id, tipo_elemento_id=tipo.id, piso_id=piso.id
+        )
+        return construir_codigo(correlativo=correlativo, **ubicacion), correlativo
+    # Sin correlativo lo identifica el detalle: su puerto o, si no se conoce, un
+    # SIN-ROTULO-NN (como el importador), para que dos altas no choquen.
+    if rack is not None and puerto:
+        detalle = detalle_de_puerto(rack.correlativo or 0, puerto)
+    else:
+        detalle = siguiente_sin_rotulo(sesion, construir_codigo(**ubicacion))
+    return construir_codigo(detalle=detalle, **ubicacion), None
+
+
 @router.post("", response_model=ElementoDetalle, status_code=status.HTTP_201_CREATED)
 def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None = None):
     tipo = obtener_tipo(sesion, datos.tipo)
@@ -481,6 +602,20 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
                 status.HTTP_400_BAD_REQUEST,
                 f"El elemento '{padre.codigo}' no es un contenedor y no puede alojar otros",
             )
+        _exigir_rack_vigente(padre)
+        # El código dice dónde está: lo montado, donde esté su rack.
+        if padre.piso_id != piso.id:
+            raise _error_de_campo("padre_codigo", f"'{padre.codigo}' está en otro piso")
+        montado = tipo.codigo not in TIPOS_CONECTADOS_AL_CONTENEDOR
+        if montado and padre.tramo_id != (tramo.id if tramo else None):
+            raise _error_de_campo("padre_codigo", f"'{padre.codigo}' está en otro tramo")
+
+    rack = _rack_de_origen(sesion, edificio, datos.rack_origen) if datos.rack_origen else None
+    if rack is not None and not datos.puerto:
+        raise _error_de_campo("puerto", "indique el puerto del rack, por ejemplo D17")
+    if datos.puerto and rack is None:
+        raise _error_de_campo("rack_origen", "indique de qué rack sale ese puerto")
+    puerto = datos.puerto.upper() if datos.puerto else None
 
     # Código: explícito o generado según la convención del SOP sección 8.
     correlativo: int | None = None
@@ -491,26 +626,31 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
         except CodigoInvalido as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     else:
-        if tipo.usa_correlativo:
-            correlativo = siguiente_correlativo(
-                sesion, edificio_id=edificio.id, tipo_elemento_id=tipo.id, piso_id=piso.id
-            )
-        codigo = construir_codigo(
-            edificio=edificio.codigo,
-            tipo=tipo.codigo,
-            correlativo=correlativo,
-            piso=piso.codigo,
-            tramo=tramo.codigo if tramo else None,
+        codigo, correlativo = _codigo_generado(
+            sesion, tipo=tipo, edificio=edificio, piso=piso, tramo=tramo, rack=rack, puerto=puerto
         )
 
-    if sesion.scalar(select(Elemento).where(Elemento.codigo == codigo)):
+    if codigo_ocupado(sesion, codigo):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"El código '{codigo}' ya está en uso. Los códigos no se reutilizan (SOP 8.5).",
         )
 
+    # El rótulo físico y el servicio salen del puerto, como en las planillas.
+    rotulo = None
+    entrada_ficha = dict(datos.atributos)
+    if rack is not None and puerto:
+        rotulo = rotulo_de_puerto(
+            piso.codigo, tramo.codigo if tramo else None, rack.correlativo or 0, puerto
+        )
+        por_clave = {d.clave for d in tipo.atributos}
+        sugeridos = {"puerto_origen": rotulo, "servicio": SERVICIOS_POR_PREFIJO.get(puerto[0])}
+        for clave, valor in sugeridos.items():
+            if clave in por_clave and valor and not entrada_ficha.get(clave):
+                entrada_ficha[clave] = valor
+
     try:
-        atributos = validar_atributos(list(tipo.atributos), datos.atributos)
+        atributos = validar_atributos(list(tipo.atributos), entrada_ficha)
     except AtributosInvalidos as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.errores) from exc
 
@@ -539,18 +679,95 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
                 "padre_codigo",
                 "atributos",
                 "numero_recinto",
+                "rack_origen",
+                "puerto",
+                "etiqueta",
             }
         ),
+        etiqueta=datos.etiqueta or rotulo,
     )
     sesion.add(elemento)
     sesion.flush()
     registrar_alta(sesion, elemento, usuario=usuario)
+    # Mapeo puerto del rack → punto de datos (SOP §9.2.3), como el importador.
+    if rack is not None and puerto:
+        sesion.add(
+            Enlace(
+                origen_id=rack.id,
+                puerto_origen=puerto,
+                destino_id=elemento.id,
+                medio=MedioEnlace.COBRE,
+                categoria=atributos.get("categoria_cable"),
+                etiqueta=rotulo,
+            )
+        )
     # Con su recinto en las láminas, aparece ya ubicado en el plano.
     if not elemento.tiene_coordenadas and numero_recinto:
         sesion.refresh(elemento)
         ubicar_en_recinto(sesion, elemento, origen=OrigenCambio.MANUAL, usuario=usuario)
     sesion.flush()
     return _armar_detalle(elemento)
+
+
+def _puerto_indicado(
+    sesion: Session, elemento: Elemento, entrada: dict
+) -> tuple[int, Elemento | None, str] | None:
+    """Número de rack, rack y puerto, si esta edición dice de dónde sale el punto.
+
+    Con ``rack_origen`` y ``puerto``, como en el alta. También sirve el rótulo escrito
+    en la ficha (``P01-T2-R4-D17``), si se entiende y sale de un puerto válido.
+    """
+    rack_origen = entrada.pop("rack_origen", None)
+    puerto = entrada.pop("puerto", None)
+    if rack_origen or puerto:
+        if elemento.tipo.usa_correlativo:
+            raise _error_de_campo("rack_origen", "solo un punto de datos sale de un puerto de rack")
+        if not puerto:
+            raise _error_de_campo("puerto", "indique el puerto del rack, por ejemplo D17")
+        if not rack_origen:
+            raise _error_de_campo("rack_origen", "indique de qué rack sale ese puerto")
+        rack = _rack_de_origen(sesion, elemento.edificio, rack_origen)
+        return rack.correlativo or 0, rack, puerto.upper()
+
+    rotulo = (entrada.get("atributos") or {}).get("puerto_origen")
+    if elemento.tipo.usa_correlativo or not isinstance(rotulo, str):
+        return None
+    partes = RE_ROTULO_PD.match(rotulo.strip())
+    if partes is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", partes.group(4)):
+        return None
+    numero_rack = int(partes.group(3))
+    racks = sesion.scalars(
+        select(Elemento)
+        .join(TipoElemento, Elemento.tipo_elemento_id == TipoElemento.id)
+        .where(
+            Elemento.edificio_id == elemento.edificio_id,
+            Elemento.correlativo == numero_rack,
+            Elemento.activo.is_(True),
+            TipoElemento.es_contenedor.is_(True),
+        )
+    ).unique().all()
+    return numero_rack, racks[0] if len(racks) == 1 else None, partes.group(4).upper()
+
+
+def _actualizar_enlace(
+    sesion: Session, punto: Elemento, rack: Elemento, puerto: str, rotulo: str
+) -> None:
+    enlace = _enlace_de_origen(sesion, punto)
+    if enlace is None:
+        sesion.add(
+            Enlace(
+                origen_id=rack.id,
+                puerto_origen=puerto,
+                destino_id=punto.id,
+                medio=MedioEnlace.COBRE,
+                categoria=(punto.atributos or {}).get("categoria_cable"),
+                etiqueta=rotulo,
+            )
+        )
+        return
+    enlace.origen_id = rack.id
+    enlace.puerto_origen = puerto
+    enlace.etiqueta = rotulo
 
 
 @router.patch("/{id_o_codigo}", response_model=ElementoDetalle)
@@ -567,6 +784,16 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
     # Borrar las coordenadas sí se permite: es lo que se hace al montarlo.
     if any(entrada.get(campo) is not None for campo in ("plano_id", "pos_x", "pos_y")):
         _exigir_marcador_propio(elemento)
+
+    # El tramo está en el código: cambiarlo es un traslado, con todo lo que implica.
+    if "tramo" in entrada:
+        piso, tramo = _destino_de_traslado(
+            sesion, elemento, elemento.piso.codigo, entrada.pop("tramo")
+        )
+        if (tramo.id if tramo else None) != elemento.tramo_id:
+            _aplicar_traslado(
+                sesion, elemento, piso, tramo, {}, usuario=datos.usuario, comentario=datos.comentario
+            )
 
     cambios: dict = {}
     # Al cambiar el número de recinto, el elemento pasa a ese recinto.
@@ -586,10 +813,6 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
             cambios["numero_recinto"] = numero
             reubicar = True
 
-    if "tramo" in entrada:
-        tramo = obtener_tramo(sesion, elemento.piso, entrada.pop("tramo"))
-        cambios["tramo_id"] = tramo.id if tramo else None
-
     if "tramo_lamina" in entrada:
         cambios.update(_cambios_de_lamina(sesion, elemento, entrada.pop("tramo_lamina")))
 
@@ -606,19 +829,74 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
                     status.HTTP_400_BAD_REQUEST,
                     f"El elemento '{padre.codigo}' no es un contenedor y no puede alojar otros",
                 )
+            _exigir_rack_vigente(padre)
             if padre.piso_id != elemento.piso_id:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
                     f"'{padre.codigo}' está en otro piso que '{elemento.codigo}'",
                 )
+            montado = elemento.tipo.codigo not in TIPOS_CONECTADOS_AL_CONTENEDOR
+            # Lo montado está donde esté su rack: pasa a su tramo, y su código con él.
+            if montado and padre.tramo_id != elemento.tramo_id:
+                indicados = {"padre_codigo": padre.codigo}
+                if "unidad_rack" in entrada:
+                    indicados["unidad_rack"] = entrada["unidad_rack"]
+                _aplicar_traslado(
+                    sesion,
+                    elemento,
+                    elemento.piso,
+                    padre.tramo,
+                    indicados,
+                    usuario=datos.usuario,
+                    comentario=datos.comentario,
+                )
             cambios["padre_id"] = padre.id
             # Al quedar montado se ve a través del rack: su posición propia
             # dejaría de dibujarse y quedaría como dato engañoso.
-            montado = elemento.tipo.codigo not in TIPOS_CONECTADOS_AL_CONTENEDOR
             if montado and elemento.tiene_coordenadas:
                 cambios.update(plano_id=None, pos_x=None, pos_y=None)
         else:
             cambios["padre_id"] = None
+
+    # Un punto de datos se identifica por su puerto: al completarlo o cambiarlo, también
+    # cambian su código, su rótulo, su servicio y el enlace con el rack.
+    origen = _puerto_indicado(sesion, elemento, entrada)
+    rack_de_enlace: Elemento | None = None
+    if origen is not None:
+        numero_rack, rack_de_enlace, puerto = origen
+        ubicacion = {
+            "edificio": elemento.edificio.codigo,
+            "tipo": elemento.tipo.codigo,
+            "piso": elemento.piso.codigo,
+            "tramo": elemento.tramo.codigo if elemento.tramo else None,
+        }
+        codigo = construir_codigo(detalle=detalle_de_puerto(numero_rack, puerto), **ubicacion)
+        if codigo != elemento.codigo:
+            if codigo_ocupado(sesion, codigo, salvo=elemento.id):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Ya existe {codigo}: ese puerto ya está documentado. "
+                    "Los códigos no se reutilizan (SOP 8.5).",
+                )
+            cambios["codigo"] = codigo
+
+        rotulo = rotulo_de_puerto(ubicacion["piso"], ubicacion["tramo"], numero_rack, puerto)
+        actuales = elemento.atributos or {}
+        nuevos = dict(entrada.get("atributos") or {})
+        rotulo = str(nuevos.setdefault("puerto_origen", rotulo)).strip().upper()
+        nuevos["puerto_origen"] = rotulo
+        # Un servicio escrito a mano (video, impresión…) no lo decide el prefijo del puerto.
+        servicio = SERVICIOS_POR_PREFIJO.get(puerto[0])
+        if servicio and actuales.get("servicio") in (None, *SERVICIOS_POR_PREFIJO.values()):
+            nuevos.setdefault("servicio", servicio)
+        entrada["atributos"] = nuevos
+        automatica = (elemento.etiqueta or "").strip().lower() in (
+            "",
+            "sin etiqueta",
+            str(actuales.get("puerto_origen") or "").lower(),
+        )
+        if automatica and "etiqueta" not in entrada:
+            entrada["etiqueta"] = rotulo
 
     if "atributos" in entrada:
         nuevos = entrada.pop("atributos") or {}
@@ -643,6 +921,8 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
         usuario=datos.usuario,
         comentario=datos.comentario,
     )
+    if rack_de_enlace is not None:
+        _actualizar_enlace(sesion, elemento, rack_de_enlace, puerto, rotulo)
     sesion.flush()
     # Los cambios se aplican sobre las columnas *_id; sin esto las relaciones
     # ya cargadas (tramo, lámina, contenedor) responderían con el valor anterior.
@@ -697,6 +977,129 @@ def actualizar_posicion(id_o_codigo: str, datos: PosicionActualizar, sesion: Ses
     return _armar_detalle(elemento)
 
 
+def _destino_de_traslado(
+    sesion: Session, elemento: Elemento, codigo_piso: str, codigo_tramo: str | None
+) -> tuple[Piso, Tramo | None]:
+    """Solo dentro de su edificio: otro edificio tendría otra sigla, otros racks…"""
+    if not elemento.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{elemento.codigo} está eliminado")
+    piso = obtener_piso(sesion, elemento.edificio, codigo_piso)
+    tramo = obtener_tramo(sesion, piso, codigo_tramo)
+    if tramo is None and piso.tramos:
+        raise _error_de_campo("tramo", f"indique el tramo: {piso.codigo} está dividido en tramos")
+    return piso, tramo
+
+
+@router.get("/{id_o_codigo}/traslado", response_model=PrevioTraslado)
+def previo_de_traslado(id_o_codigo: str, sesion: SesionBD, piso: str, tramo: str | None = None):
+    """Lo que pasaría al trasladarlo: el código nuevo, lo que viaja con él y lo que
+    se pierde. No cambia nada."""
+    elemento = obtener_elemento(sesion, id_o_codigo)
+    piso_sel, tramo_sel = _destino_de_traslado(sesion, elemento, piso, tramo)
+    try:
+        plan = planificar_traslado(sesion, elemento, piso_sel, tramo_sel)
+    except TrasladoInvalido as exc:
+        return PrevioTraslado(codigo_actual=elemento.codigo, conflicto=str(exc))
+    return PrevioTraslado(
+        codigo_actual=elemento.codigo,
+        codigo_nuevo=plan.movimientos[0].codigo,
+        arrastrados=[
+            CambioDeCodigo(codigo_actual=m.elemento.codigo, codigo_nuevo=m.codigo)
+            for m in plan.movimientos[1:]
+        ],
+        desconectados=[e.codigo for e in plan.desconectados],
+        conserva_posicion=conserva_posicion(plan),
+        pierde_rack=plan.sale_de_su_rack,
+    )
+
+
+def _aplicar_traslado(
+    sesion: Session,
+    elemento: Elemento,
+    piso: Piso,
+    tramo: Tramo | None,
+    indicados: dict,
+    *,
+    usuario: str | None,
+    comentario: str | None,
+) -> None:
+    """``indicados`` trae solo lo que se dijo: lo que depende del lugar y no se
+    indicó se conserva en el mismo piso y se borra en otro."""
+    try:
+        plan = planificar_traslado(sesion, elemento, piso, tramo)
+    except TrasladoInvalido as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    cambia_de_piso = plan.cambia_de_piso
+
+    if "numero_recinto" in indicados:
+        numero = _validar_numero_recinto(indicados["numero_recinto"], piso.codigo)
+    else:
+        numero = None if cambia_de_piso else elemento.numero_recinto
+    if "ubicacion_descriptiva" in indicados:
+        ubicacion = (indicados["ubicacion_descriptiva"] or "").strip() or None
+        # Una ubicación que trae su número también sirve («Oficina 2045»).
+        if "numero_recinto" not in indicados or numero is None:
+            numero = numero_de_recinto(ubicacion, piso.codigo) or numero
+    else:
+        ubicacion = None if cambia_de_piso else elemento.ubicacion_descriptiva
+
+    padre = None if plan.sale_de_su_rack else elemento.padre
+    if "padre_codigo" in indicados:
+        padre = None
+        if indicados["padre_codigo"]:
+            padre = obtener_elemento(sesion, indicados["padre_codigo"])
+            viajan = {m.elemento.id for m in plan.movimientos}
+            if not padre.activo or not padre.tipo.es_contenedor:
+                raise _error_de_campo("padre_codigo", f"'{padre.codigo}' no es un rack disponible")
+            if padre.id in viajan:
+                raise _error_de_campo("padre_codigo", "un elemento no puede contenerse a sí mismo")
+            if padre.piso_id != piso.id:
+                raise _error_de_campo("padre_codigo", f"'{padre.codigo}' está en otro piso")
+            montado = elemento.tipo.codigo not in TIPOS_CONECTADOS_AL_CONTENEDOR
+            if montado and padre.tramo_id != (tramo.id if tramo else None):
+                raise _error_de_campo("padre_codigo", f"'{padre.codigo}' está en otro tramo")
+
+    if padre is None:
+        unidad = None
+    elif "unidad_rack" in indicados:
+        unidad = indicados["unidad_rack"]
+    else:
+        unidad = elemento.unidad_rack if padre.id == elemento.padre_id else None
+
+    ejecutar_traslado(
+        sesion,
+        plan,
+        ubicacion_descriptiva=ubicacion,
+        numero_recinto=numero,
+        padre=padre,
+        unidad_rack=unidad,
+        usuario=usuario,
+        comentario=comentario,
+    )
+
+
+@router.post("/{id_o_codigo}/trasladar", response_model=ElementoDetalle)
+def trasladar_elemento(id_o_codigo: str, datos: TrasladoPedido, sesion: SesionBD):
+    """Lo lleva a otro piso o tramo de su edificio. Su código cambia con él y el
+    anterior queda reservado: ver ``app.servicios.traslados``."""
+    elemento = obtener_elemento(sesion, id_o_codigo)
+    piso, tramo = _destino_de_traslado(sesion, elemento, datos.piso, datos.tramo)
+    _aplicar_traslado(
+        sesion,
+        elemento,
+        piso,
+        tramo,
+        datos.model_dump(
+            exclude_unset=True,
+            include={"ubicacion_descriptiva", "numero_recinto", "padre_codigo", "unidad_rack"},
+        ),
+        usuario=datos.usuario,
+        comentario=datos.comentario,
+    )
+    return _armar_detalle(elemento)
+
+
 @router.post("/{id_o_codigo}/ubicar-en-recinto", response_model=ElementoDetalle)
 def ubicar_en_su_recinto(id_o_codigo: str, sesion: SesionBD, usuario: str | None = None):
     """Lleva el elemento a su recinto: el de su número, en las láminas del piso.
@@ -725,11 +1128,29 @@ def ubicar_en_su_recinto(id_o_codigo: str, sesion: SesionBD, usuario: str | None
 
 @router.delete("/{id_o_codigo}", response_model=ElementoDetalle)
 def dar_de_baja(
-    id_o_codigo: str, sesion: SesionBD, usuario: str | None = None, motivo: str | None = None
+    id_o_codigo: str,
+    sesion: SesionBD,
+    usuario: str | None = Query(default=None, max_length=120),
+    motivo: str | None = Query(default=None, max_length=1000),
 ):
     """Baja lógica: el elemento sale de la vista operativa, el código queda
-    inactivo y nunca se reasigna (SOP sección 8.5)."""
+    inactivo y nunca se reasigna (SOP sección 8.5). Se puede restaurar.
+
+    Lo montado se ve a través de su contenedor, así que un rack debe vaciarse
+    antes: si no, sus equipos dejarían de verse. Lo que solo está conectado (un
+    AP, una UPS) tiene su propio marcador: se desconecta y sigue donde está.
+    """
     elemento = obtener_elemento(sesion, id_o_codigo)
+    if not elemento.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{elemento.codigo} ya está eliminado")
+    hijos = [h for h in elemento.hijos if h.activo]
+    montados = [h.codigo for h in hijos if h.montado]
+    if montados:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{elemento.codigo} tiene {len(montados)} equipos montados: trasládalos o "
+            f"elimínalos primero ({', '.join(montados)})",
+        )
     registrar_cambios(
         sesion,
         elemento,
@@ -737,7 +1158,91 @@ def dar_de_baja(
         usuario=usuario,
         comentario=motivo or "Baja del elemento",
     )
+    # Ya en la base: restaurar busca lo que se desconectó después de esa entrada.
     sesion.flush()
+    for conectado in hijos:
+        registrar_cambios(
+            sesion,
+            conectado,
+            {"padre_id": None},
+            usuario=usuario,
+            comentario=f"{elemento.codigo} se eliminó: ya no está conectado",
+        )
+    sesion.flush()
+    sesion.expire(elemento)
+    return _armar_detalle(elemento)
+
+
+@router.post("/{id_o_codigo}/restaurar", response_model=ElementoDetalle)
+def restaurar_elemento(
+    id_o_codigo: str, sesion: SesionBD, usuario: str | None = Query(default=None, max_length=120)
+):
+    """Deshace una baja: vuelve con su mismo código y el estado que tenía.
+
+    Si estaba montado en un rack que ya no está o que cambió de lugar, queda sin
+    rack y por ubicar.
+    Lo que se desconectó de él al eliminarlo vuelve a conectarse.
+    """
+    elemento = obtener_elemento(sesion, id_o_codigo)
+    if elemento.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{elemento.codigo} no está eliminado")
+
+    baja = sesion.scalar(
+        select(func.max(HistorialElemento.id)).where(
+            HistorialElemento.elemento_id == elemento.id, HistorialElemento.campo == "activo"
+        )
+    )
+    cambios: dict = {"activo": True}
+    if baja is None:
+        cambios["estado_operativo"] = EstadoOperativo.ACTIVO
+    else:
+        previo = sesion.scalar(
+            select(HistorialElemento.valor_anterior)
+            .where(
+                HistorialElemento.elemento_id == elemento.id,
+                HistorialElemento.campo == "estado_operativo",
+                HistorialElemento.id > baja,
+            )
+            .order_by(HistorialElemento.id)
+            .limit(1)
+        )
+        if previo:
+            cambios["estado_operativo"] = EstadoOperativo(previo)
+    padre = elemento.padre
+    if padre is not None and (
+        not padre.activo
+        or padre.piso_id != elemento.piso_id
+        or (elemento.montado and padre.tramo_id != elemento.tramo_id)
+    ):
+        cambios.update(padre_id=None, unidad_rack=None)
+
+    registrar_cambios(
+        sesion, elemento, cambios, usuario=usuario, comentario="Se restauró el elemento"
+    )
+    # Lo que se desconectó al eliminarlo, si sigue suelto y en ese piso.
+    if baja is not None:
+        desconectados = sesion.scalars(
+            select(Elemento)
+            .join(HistorialElemento, HistorialElemento.elemento_id == Elemento.id)
+            .where(
+                HistorialElemento.id > baja,
+                HistorialElemento.campo == "padre_id",
+                HistorialElemento.valor_anterior == str(elemento.id),
+                Elemento.activo.is_(True),
+                Elemento.padre_id.is_(None),
+                Elemento.piso_id == elemento.piso_id,
+            )
+        ).unique()
+        for conectado in desconectados:
+            registrar_cambios(
+                sesion,
+                conectado,
+                {"padre_id": elemento.id},
+                usuario=usuario,
+                comentario=f"{elemento.codigo} se restauró: vuelve a estar conectado",
+            )
+    sesion.flush()
+    sesion.expire(elemento)
     return _armar_detalle(elemento)
 
 

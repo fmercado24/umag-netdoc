@@ -172,6 +172,7 @@ interface Props {
   posicionando: ElementoMapa | null
   onSeleccionar: (elemento: ElementoMapa) => void
   onPosicionar: (x: number, y: number) => void
+  onCancelarPosicion: () => void
 }
 
 export function VisorPlano({
@@ -183,6 +184,7 @@ export function VisorPlano({
   posicionando,
   onSeleccionar,
   onPosicionar,
+  onCancelarPosicion,
 }: Props) {
   if (!plano && hayLaminasPorTramo) {
     return (
@@ -243,6 +245,9 @@ export function VisorPlano({
           Haz clic sobre el plano para fijar la posición de{' '}
           <strong>{posicionando.codigo}</strong>
           {posicionandoPD && ', o sobre otro punto de datos para agruparlo con él'}
+          <button className="aviso-posicionar__cancelar" onClick={onCancelarPosicion}>
+            Ahora no
+          </button>
         </div>
       )}
       <MapContainer

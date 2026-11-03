@@ -11,9 +11,16 @@ venv/
 *.db
 *.sqlite3
 
-# Entorno
+# Registro de la API que deja iniciar.sh
+*.log
+
+# Entorno y secretos: el hash de la contraseña del administrador vive en .env
 .env
-.env.local
+.env.*
+!.env.example
+backend/certs/
+*.key
+*.pem
 
 # Media cargada por los usuarios (planos y fotografías de terreno) y las
 # teselas que se generan de los planos

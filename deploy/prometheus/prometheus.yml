@@ -1,8 +1,12 @@
 # Prometheus para NetDoc (perfil "monitoreo" de docker-compose.yml).
 #
 # NetDoc corre en el equipo anfitrión: los contenedores lo alcanzan como
-# host.docker.internal. Hay que levantarlo escuchando en todas las interfaces:
+# host.docker.internal, por HTTPS. Hay que levantarlo escuchando en todas las
+# interfaces, que además genera el certificado con que se lo reconoce:
 #   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh
+#
+# El token de monitoreo no se escribe aquí: docker compose lo entrega como un
+# archivo, desde NETDOC_MONITOREO_TOKEN en .env.
 
 global:
   scrape_interval: 30s
@@ -19,6 +23,12 @@ alerting:
 scrape_configs:
   # Métricas de inventario y de la API (GET /metrics).
   - job_name: netdoc
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/netdoc_monitoreo_token
+    tls_config:
+      ca_file: /etc/prometheus/netdoc.crt
     static_configs:
       - targets: ["host.docker.internal:8000"]
 
@@ -30,8 +40,13 @@ scrape_configs:
     params:
       module: [icmp]
     http_sd_configs:
-      - url: http://host.docker.internal:8000/api/v1/integraciones/prometheus/objetivos
+      - url: https://host.docker.internal:8000/api/v1/integraciones/prometheus/objetivos
         refresh_interval: 5m
+        authorization:
+          type: Bearer
+          credentials_file: /run/secrets/netdoc_monitoreo_token
+        tls_config:
+          ca_file: /etc/prometheus/netdoc.crt
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

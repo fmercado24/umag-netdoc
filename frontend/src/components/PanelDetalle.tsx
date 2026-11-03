@@ -17,9 +17,12 @@ import type {
   Enumeraciones,
   ElementoHijo,
   HistorialEntrada,
+  Piso,
   Tramo,
 } from '../types'
+import { ConfirmarEliminacion } from './ConfirmarEliminacion'
 import { FormularioElemento } from './FormularioElemento'
+import { FormularioTraslado } from './FormularioTraslado'
 import { VistaRack } from './VistaRack'
 
 interface Props {
@@ -40,6 +43,11 @@ interface Props {
   onUbicarEnRecinto: () => void
   onPedirHistorial: () => void
   onSeleccionarCodigo: (codigo: string) => void
+  /** Los pisos de su edificio: adonde se puede trasladar. */
+  pisos: Piso[]
+  onTrasladado: (trasladado: ElementoDetalle) => void
+  onEliminado: (eliminado: ElementoDetalle) => void
+  onRestaurar: () => void
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: ReactNode }) {
@@ -113,9 +121,13 @@ export function PanelDetalle({
   onUbicarEnRecinto,
   onPedirHistorial,
   onSeleccionarCodigo,
+  pisos,
+  onTrasladado,
+  onEliminado,
+  onRestaurar,
 }: Props) {
   const [verHistorial, setVerHistorial] = useState(false)
-  const [editando, setEditando] = useState(false)
+  const [modo, setModo] = useState<'ficha' | 'editar' | 'trasladar' | 'eliminar'>('ficha')
   const completitud = detalle.completitud
   const montados = detalle.hijos.filter((h) => h.montado)
   const conectados = detalle.hijos.filter((h) => !h.montado)
@@ -151,8 +163,8 @@ export function PanelDetalle({
           {detalle.etiqueta && <p className="detalle__etiqueta">{detalle.etiqueta}</p>}
         </div>
         <div className="detalle__botones">
-          {!editando && (
-            <button className="boton-editar" onClick={() => setEditando(true)}>
+          {modo === 'ficha' && detalle.activo && (
+            <button className="boton-editar" onClick={() => setModo('editar')}>
               Editar
             </button>
           )}
@@ -162,19 +174,52 @@ export function PanelDetalle({
         </div>
       </header>
 
-      {editando ? (
+      {modo === 'editar' && (
         <FormularioElemento
           detalle={detalle}
           ficha={ficha}
           enumeraciones={enumeraciones}
-          onCancelar={() => setEditando(false)}
+          onCancelar={() => setModo('ficha')}
           onGuardado={(actualizado) => {
-            setEditando(false)
+            setModo('ficha')
             onGuardado(actualizado)
           }}
         />
-      ) : (
+      )}
+      {modo === 'trasladar' && (
+        <FormularioTraslado
+          detalle={detalle}
+          pisos={pisos}
+          onCancelar={() => setModo('ficha')}
+          onTrasladado={(trasladado) => {
+            setModo('ficha')
+            onTrasladado(trasladado)
+          }}
+        />
+      )}
+      {modo === 'eliminar' && (
+        <ConfirmarEliminacion
+          detalle={detalle}
+          onCancelar={() => setModo('ficha')}
+          onEliminado={onEliminado}
+        />
+      )}
+      {modo === 'ficha' && (
         <>
+          {!detalle.activo && (
+            <div className="acciones">
+              <p className="formulario__aviso">
+                Eliminado: no aparece en el plano y su código no se vuelve a usar. El motivo está en
+                su historial.
+              </p>
+              <div className="acciones__botones">
+                <button className="boton" onClick={onRestaurar}>
+                  Restaurar
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="insignias">
             <span className="insignia" style={{ background: detalle.color_estado }}>
               {detalle.estado_operativo.replace('_', ' ')}
@@ -212,7 +257,7 @@ export function PanelDetalle({
             </div>
           )}
 
-          {detalle.montado && detalle.padre_codigo ? (
+          {!detalle.activo ? null : detalle.montado && detalle.padre_codigo ? (
             <div className="acciones">
               <button
                 className="boton boton--secundario"
@@ -299,7 +344,7 @@ export function PanelDetalle({
               valor={
                 detalle.montado ? (
                   `la de ${detalle.padre_codigo}`
-                ) : tramosDelPiso.length > 1 ? (
+                ) : tramosDelPiso.length > 1 && detalle.activo ? (
                   <select
                     className="selector-lamina"
                     value={detalle.tramo_lamina_codigo ?? ''}
@@ -354,6 +399,11 @@ export function PanelDetalle({
             )}
             {detalle.montado && <Dato etiqueta="Unidad de rack" valor={detalle.unidad_rack} />}
           </dl>
+          {detalle.activo && (
+            <button className="boton boton--secundario" onClick={() => setModo('trasladar')}>
+              Cambiar piso o tramo
+            </button>
+          )}
 
           <h3 className="subtitulo">Equipo</h3>
           <dl className="datos">
@@ -475,6 +525,24 @@ export function PanelDetalle({
                 </li>
               ))}
             </ul>
+          )}
+
+          {detalle.activo && (
+            <div className="zona-eliminar">
+              <button
+                className="boton boton--peligro"
+                onClick={() => setModo('eliminar')}
+                disabled={montados.length > 0}
+              >
+                Eliminar elemento
+              </button>
+              {montados.length > 0 && (
+                <small className="nota">
+                  Tiene {montados.length} {montados.length === 1 ? 'equipo montado' : 'equipos montados'}
+                  : trasládalos o elimínalos primero, o dejarían de verse.
+                </small>
+              )}
+            </div>
           )}
         </>
       )}

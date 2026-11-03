@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# Administración de NetDoc en el servidor. Lo instala instalar-servidor.sh.
+# Guía: docs/instalacion-servidor.md
+
+set -euo pipefail
+umask 027
+
+ayuda() {
+  cat <<'EOF'
+Uso: sudo netdoc <comando>
+
+  estado                  Si el servicio corre y responde
+  registro                Lo que informa el servicio, en vivo (Ctrl+C para salir)
+  reiniciar               Reinicia el servicio
+  clave                   Cambia la contraseña del administrador y cierra las sesiones
+  desbloquear             Levanta el bloqueo por intentos de ingreso fallidos
+  importar                Carga lo nuevo de data/: edificios, láminas y fotografías
+  respaldar [CARPETA]     Respalda la base y los archivos (guarda los últimos 14)
+  restaurar ARCHIVO       Vuelve a un respaldo, respaldando antes lo actual
+  traer-datos BASE.db [MEDIA]
+                          Reemplaza los datos por los de otro equipo con SQLite
+EOF
+}
+
+APP=/opt/netdoc/backend
+PY="$APP/.venv/bin/python"
+DATOS=/var/lib/netdoc
+RESPALDOS="$DATOS/respaldos"
+CONFIG=/etc/netdoc/netdoc.env
+USUARIO=netdoc
+CONSERVAR=14
+
+COMANDO="${1:-ayuda}"
+case "$COMANDO" in
+  ayuda | -h | --help)
+    ayuda
+    exit 0
+    ;;
+esac
+
+if ((EUID != 0)); then
+  echo "Error: usa sudo netdoc $COMANDO" >&2
+  exit 1
+fi
+[[ -f "$CONFIG" ]] || {
+  echo "Error: NetDoc no está instalado en este servidor ($CONFIG no existe)" >&2
+  exit 1
+}
+
+set -a
+source "$CONFIG"
+set +a
+export NETDOC_ARCHIVO_ENV="$CONFIG" PYTHONDONTWRITEBYTECODE=1 HOME="$DATOS"
+cd "$APP"
+
+fallar() {
+  echo "Error: $*" >&2
+  exit 1
+}
+como_servicio() { runuser -u "$USUARIO" -- "$PY" -m "$@"; }
+
+# systemd da por iniciado el servicio antes de que atienda.
+esperar_servicio() {
+  for _ in $(seq 90); do
+    curl -fsk -m 3 -o /dev/null https://127.0.0.1/salud && return 0
+    sleep 1
+  done
+  fallar "el servicio no responde. Revisa: sudo netdoc registro"
+}
+
+ruta_sqlite() { printf '%s' "${NETDOC_DATABASE_URL#sqlite:///}"; }
+es_sqlite() { [[ "$NETDOC_DATABASE_URL" == sqlite* ]]; }
+
+# Para pg_dump y pg_restore. La contraseña va en el entorno: en la línea de
+# comandos la vería cualquier usuario del servidor.
+preparar_postgres() {
+  local url="${NETDOC_DATABASE_URL#*://}"
+  local credenciales="${url%%@*}" servidor="${url#*@}"
+  local clave="${credenciales#*:}"
+  # En la URL, los caracteres especiales van como %XX.
+  export PGUSER="${credenciales%%:*}" PGPASSWORD="$(printf '%b' "${clave//%/\\x}")"
+  export PGDATABASE="${servidor#*/}"
+  local direccion="${servidor%%/*}"
+  export PGHOST="${direccion%%:*}"
+  export PGPORT=5432
+  [[ "$direccion" != *:* ]] || PGPORT="${direccion##*:}"
+}
+
+respaldar() {
+  local carpeta="${1:-$RESPALDOS}" temporal destino
+  install -d -m 700 "$carpeta"
+  temporal="$(mktemp -d)"
+  destino="$carpeta/netdoc-$(date +%Y%m%d-%H%M%S).tar.gz"
+  if es_sqlite; then
+    # .backup es seguro con el servicio corriendo; copiar el archivo no lo sería.
+    sqlite3 "$(ruta_sqlite)" ".backup '$temporal/base.sqlite'"
+  else
+    preparar_postgres
+    pg_dump --format=custom --no-owner --file="$temporal/base.dump"
+  fi
+  # La configuración va para consultarla: restaurar no la sobrescribe.
+  cp "$CONFIG" "$temporal/netdoc.env"
+  (umask 077 && tar -czf "$destino" -C "$temporal" . -C "$DATOS" media)
+  rm -rf "$temporal"
+  echo "Respaldo: $destino ($(du -h "$destino" | cut -f1))"
+  if [[ "$carpeta" == "$RESPALDOS" ]]; then
+    find "$RESPALDOS" -maxdepth 1 -name 'netdoc-*.tar.gz' -printf '%T@ %p\n' | sort -rn |
+      tail -n +$((CONSERVAR + 1)) | cut -d' ' -f2- | xargs -r rm -f
+  fi
+}
+
+reemplazar_media() {
+  rsync -a --delete --chown="$USUARIO:$USUARIO" "$1/" "$DATOS/media/"
+}
+
+# Trae una base SQLite de otro lado. Se trabaja sobre una copia: ni la original
+# se toca al llevarla a las migraciones de esta versión.
+traer_sqlite() {
+  local copia
+  copia="$(mktemp -d)/base.sqlite"
+  cp "$1" "$copia"
+  NETDOC_DATABASE_URL="sqlite:///$copia" "$PY" -m app.scripts.migrar 2>&1 | { grep -v "^INFO " || true; } | grep -v '^Base de datos' || true
+  "$PY" -m app.scripts.copiar_base --origen "sqlite:///$copia" --destino "$NETDOC_DATABASE_URL" --reemplazar
+  rm -rf "$(dirname "$copia")"
+  if es_sqlite; then chown "$USUARIO:$USUARIO" "$(ruta_sqlite)"; fi
+}
+
+case "$COMANDO" in
+  estado)
+    systemctl --no-pager --lines=0 status netdoc || true
+    echo
+    printf 'Responde: '
+    curl -fsk -m 5 https://127.0.0.1/salud || echo "NO"
+    echo
+    ;;
+  registro)
+    exec journalctl -u netdoc -n 50 -f
+    ;;
+  reiniciar)
+    systemctl restart netdoc
+    esperar_servicio
+    echo "Reiniciado."
+    ;;
+  clave)
+    "$PY" -m app.scripts.definir_clave
+    systemctl restart netdoc
+    esperar_servicio
+    echo "Servicio reiniciado con la contraseña nueva."
+    ;;
+  desbloquear)
+    "$PY" -m app.scripts.definir_clave --desbloquear
+    ;;
+  importar)
+    como_servicio app.scripts.importar_edificio --pendientes
+    como_servicio app.scripts.cargar_planos
+    como_servicio app.scripts.cargar_fotografias
+    systemctl restart netdoc
+    esperar_servicio
+    ;;
+  respaldar)
+    respaldar "${2:-$RESPALDOS}"
+    ;;
+  restaurar)
+    ARCHIVO="${2:-}"
+    [[ -r "$ARCHIVO" ]] || fallar "indica un archivo de respaldo: sudo netdoc restaurar ARCHIVO"
+    TEMPORAL="$(mktemp -d)"
+    tar -xzf "$ARCHIVO" -C "$TEMPORAL" 2>/dev/null || fallar "$ARCHIVO no es un respaldo de NetDoc"
+    [[ -f "$TEMPORAL/base.sqlite" || -f "$TEMPORAL/base.dump" ]] || fallar "$ARCHIVO no es un respaldo de NetDoc"
+    if [[ -f "$TEMPORAL/base.dump" ]] && es_sqlite; then
+      fallar "ese respaldo es de PostgreSQL y esta instalación usa SQLite"
+    fi
+    echo "Respaldando lo actual antes de reemplazarlo…"
+    respaldar
+    systemctl stop netdoc
+    if [[ -f "$TEMPORAL/base.dump" ]]; then
+      preparar_postgres
+      pg_restore --clean --if-exists --no-owner --dbname="$PGDATABASE" "$TEMPORAL/base.dump"
+    elif es_sqlite; then
+      install -m 640 -o "$USUARIO" -g "$USUARIO" "$TEMPORAL/base.sqlite" "$(ruta_sqlite)"
+    else
+      traer_sqlite "$TEMPORAL/base.sqlite"
+    fi
+    [[ ! -d "$TEMPORAL/media" ]] || reemplazar_media "$TEMPORAL/media"
+    rm -rf "$TEMPORAL"
+    # El respaldo puede ser de una versión anterior.
+    como_servicio app.scripts.migrar 2>&1 | { grep -v "^INFO " || true; } | grep -v '^Base de datos' || true
+    systemctl start netdoc
+    esperar_servicio
+    echo "Restaurado."
+    ;;
+  traer-datos)
+    BASE_ORIGEN="${2:-}"
+    MEDIA_ORIGEN="${3:-}"
+    [[ -r "$BASE_ORIGEN" ]] || fallar "indica la base SQLite: sudo netdoc traer-datos BASE.db [CARPETA_MEDIA]"
+    [[ -z "$MEDIA_ORIGEN" || -d "$MEDIA_ORIGEN" ]] || fallar "$MEDIA_ORIGEN no es una carpeta"
+    echo "Respaldando lo actual antes de reemplazarlo…"
+    respaldar
+    systemctl stop netdoc
+    traer_sqlite "$BASE_ORIGEN"
+    [[ -z "$MEDIA_ORIGEN" ]] || reemplazar_media "$MEDIA_ORIGEN"
+    systemctl start netdoc
+    esperar_servicio
+    echo "Datos traídos. Hay que volver a ingresar."
+    [[ -n "$MEDIA_ORIGEN" ]] || echo "Sin carpeta de archivos: los planos y las fotos siguen siendo los de este servidor."
+    ;;
+  *)
+    ayuda >&2
+    exit 2
+    ;;
+esac

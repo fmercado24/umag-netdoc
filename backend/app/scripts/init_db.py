@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 
+from sqlalchemy.engine import make_url
+
 from app import models as _modelos  # noqa: F401  (registra los modelos en el metadata)
 from app.core.config import configuracion
 from app.db.base import Base
@@ -25,7 +27,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    print(f"Base de datos: {configuracion.database_url}")
+    print(f"Base de datos: {make_url(configuracion.database_url).render_as_string()}")
 
     if args.recrear:
         respuesta = input("Esto borra todos los datos. Escriba 'si' para continuar: ")

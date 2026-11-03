@@ -4,7 +4,7 @@
 // el elemento documentado cambie de estado. Parámetros del tipo de medio (ver
 // README.md de esta carpeta):
 //
-//   netdoc_url           http://<servidor>:8000/api/v1/integraciones/monitoreo/estado
+//   netdoc_url           https://<servidor>:8000/api/v1/integraciones/monitoreo/estado
 //   netdoc_token         el valor de NETDOC_MONITOREO_TOKEN
 //   host                 {HOST.HOST}
 //   ip                   {HOST.IP}

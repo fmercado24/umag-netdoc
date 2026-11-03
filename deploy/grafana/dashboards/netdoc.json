@@ -54,7 +54,7 @@
     {
       "title": "Abrir NetDoc",
       "type": "link",
-      "url": "http://localhost:5173",
+      "url": "http://localhost:8000",
       "targetBlank": true
     }
   ],

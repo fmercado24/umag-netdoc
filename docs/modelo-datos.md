@@ -148,6 +148,13 @@ de retención permanente que exige la sección 12 del SOP.
 | `identificador_externo` | Id del elemento en otro sistema (NetBox, GLPI, Zabbix…): uno por sistema y elemento. Lo usan los conectores para sincronizar sin duplicar ([integraciones](integraciones.md)) |
 | `enlace` | Conexión física. Cubre tanto el uplink de un switch (§9.2.1) como el mapeo puerto de patch panel → punto de datos (§9.2.3). `destino_descripcion` permite registrar el destino como texto mientras no exista como elemento documentado |
 
+### Acceso
+
+| Tabla | Rol |
+|---|---|
+| `sesion_acceso` | Sesiones del administrador: la huella del token de la cookie, de dónde se inició, último uso y vencimiento. Borrar la fila cierra la sesión ([seguridad](seguridad.md)) |
+| `intento_ingreso` | Intentos de ingreso fallidos de la última ventana, por equipo: es lo que limita los intentos, también con varios procesos y tras un reinicio |
+
 ## Enumeraciones
 
 Se almacenan como `VARCHAR` con restricción `CHECK`, no como tipos nativos de

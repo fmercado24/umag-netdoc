@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import configuracion
 from app.models import Elemento, OrigenCambio, Piso, Plano, Tramo
+from app.servicios.archivos import contenido_coincide
 from app.servicios.historial import registrar_cambios
 
 EXTENSIONES_PLANO = {".svg", ".png", ".jpg", ".jpeg", ".webp", ".pdf"}
@@ -159,14 +160,16 @@ def quitar_caracteres_de_control(contenido: bytes) -> bytes:
 
 
 def sanear_svg(contenido: bytes) -> bytes:
-    """Quita los caracteres de control ilegales y exige XML bien formado."""
+    """Quita los caracteres de control ilegales y exige un SVG bien formado."""
     limpio = quitar_caracteres_de_control(contenido)
     try:
-        ElementTree.fromstring(limpio)
+        raiz = ElementTree.fromstring(limpio)
     except ElementTree.ParseError as exc:
         raise SvgInvalido(
             f"El SVG no es XML válido y el navegador no podría mostrarlo: {exc}"
         ) from exc
+    if raiz.tag.rpartition("}")[2] != "svg":
+        raise SvgInvalido("El archivo es XML, pero no un SVG")
     return limpio
 
 
@@ -206,6 +209,8 @@ def guardar_plano(
         )
     if extension == ".svg":
         contenido = sanear_svg(contenido)
+    elif not contenido_coincide(extension, contenido):
+        raise FormatoNoAdmitido(f"El contenido del archivo no corresponde a un {extension}")
 
     tramo_id = tramo.id if tramo else None
     mismo_alcance = [p for p in piso.planos if p.tramo_id == tramo_id]

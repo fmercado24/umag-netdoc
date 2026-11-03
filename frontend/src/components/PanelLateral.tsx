@@ -31,6 +31,10 @@ interface Props {
   onAlternarEstado: (valor: string) => void
   onLimpiar: () => void
   onSeleccionar: (elemento: ElementoMapa) => void
+  /** Un edificio aún sin pisos no tiene dónde ubicar un elemento nuevo. */
+  puedeAgregar: boolean
+  onAgregar: () => void
+  onVerEliminados: () => void
 }
 
 export function PanelLateral({
@@ -49,6 +53,9 @@ export function PanelLateral({
   onAlternarEstado,
   onLimpiar,
   onSeleccionar,
+  puedeAgregar,
+  onAgregar,
+  onVerEliminados,
 }: Props) {
   const hayFiltros = tiposActivos.size > 0 || estadosActivos.size > 0
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
@@ -167,6 +174,18 @@ export function PanelLateral({
           <h2>{titulo}</h2>
           <span className="contador">{totalCoincidencias}</span>
         </div>
+
+        <button
+          className="boton boton--agregar"
+          onClick={onAgregar}
+          disabled={!puedeAgregar}
+          title={puedeAgregar ? undefined : 'Este edificio aún no tiene pisos registrados'}
+        >
+          + Agregar elemento
+        </button>
+        <button className="boton-enlace boton--eliminados" onClick={onVerEliminados}>
+          Ver eliminados
+        </button>
 
         {sinPosicionar > 0 && (
           <p className="aviso">

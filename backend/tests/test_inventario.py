@@ -82,7 +82,7 @@ def test_inventario_da_a_lo_montado_la_posicion_de_su_rack(cliente):
     switch = _crear(cliente, "P25", padre_codigo=rack)
     plano = cliente.post(
         f"{API}/edificios/CADI/pisos/P25/plano",
-        files={"archivo": ("cadi-p25.png", b"x", "image/png")},
+        files={"archivo": ("cadi-p25.png", b"\x89PNG\r\n\x1a\n", "image/png")},
         data={"ancho_px": "100", "alto_px": "50"},
     ).json()["id"]
     cliente.patch(f"{API}/elementos/{rack}/posicion", json={"plano_id": plano, "pos_x": 40, "pos_y": 20})

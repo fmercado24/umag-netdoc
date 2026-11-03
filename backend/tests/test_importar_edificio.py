@@ -312,7 +312,8 @@ def test_agregar_lleva_un_rack_inferido_al_piso_de_su_planilla(cliente, tmp_path
 
     rack = cliente.get(f"{API}/elementos/AGR-R11-P00").json()
     assert (rack["piso_codigo"], rack["tramo_codigo"], rack["etiqueta"]) == ("P00", None, "R11")
-    assert cliente.get(f"{API}/elementos/AGR-R11-P01-T1").status_code == 404
+    # El código anterior no vuelve a usarse y sigue llevando al mismo rack.
+    assert cliente.get(f"{API}/elementos/AGR-R11-P01-T1").json()["codigo"] == "AGR-R11-P00"
     switch = cliente.get(f"{API}/elementos/AGR-SW01-P01-T1").json()
     assert switch["padre_codigo"] is None
     # El punto de datos sigue enlazado al rack, ahora en el subterráneo.
@@ -320,6 +321,33 @@ def test_agregar_lleva_un_rack_inferido_al_piso_de_su_planilla(cliente, tmp_path
     assert {e["codigo"] for e in enlaces["elementos"]} >= {"AGR-R11-P00", "AGR-PD-P01-T1-R11-C02"}
     historial = cliente.get(f"{API}/elementos/AGR-R11-P00/historial").json()
     assert any(h["campo"] == "codigo" and h["valor_anterior"] == "AGR-R11-P01-T1" for h in historial)
+
+
+def test_agregar_no_vuelve_a_crear_lo_que_se_traslado(cliente, tmp_path, capsys):
+    cliente.post(f"{API}/edificios", json={"codigo": "TRA", "nombre": "Edificio de prueba"})
+    (tmp_path / "tra-p01-t1.csv").write_text(
+        ENCABEZADO + "Cisco C9200,SW-A,switches,Sala 1015,Operativo,Excelente,,,\n",
+        encoding="utf-8",
+    )
+    main(["TRA", "--datos", str(tmp_path)])
+    cliente.post(f"{API}/edificios/TRA/pisos", json={"codigo": "P02", "orden": 2})
+    respuesta = cliente.post(f"{API}/elementos/TRA-SW01-P01-T1/trasladar", json={"piso": "P02"})
+    assert respuesta.json()["codigo"] == "TRA-SW01-P02"
+
+    (tmp_path / "tra-p01-t2.csv").write_text(
+        ENCABEZADO + "Cisco C9200,SW-B,switches,Sala 1040,Operativo,Excelente,,,\n",
+        encoding="utf-8",
+    )
+    main(["TRA", "--datos", str(tmp_path), "--agregar"])
+    capsys.readouterr()
+
+    elementos = cliente.get(f"{API}/elementos?edificio=TRA&tipo=SW").json()["items"]
+    codigos = {e["codigo"] for e in elementos}
+    assert "TRA-SW01-P02" in codigos
+    assert "TRA-SW01-P01-T1" not in codigos
+    # El de la planilla nueva no toma el número del que se fue.
+    assert "TRA-SW02-P01-T2" in codigos
+    assert "TRA-SW01-P01-T2" not in codigos
 
 
 def test_numero_de_sala_de_otro_piso_se_informa(cliente, tmp_path, capsys):

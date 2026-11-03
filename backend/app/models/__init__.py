@@ -1,6 +1,7 @@
 """Modelos ORM. Importar todo aquí garantiza que SQLAlchemy resuelva las
 relaciones declaradas por nombre y que Alembic vea el metadata completo."""
 
+from app.models.acceso import IntentoIngreso, SesionAcceso
 from app.models.catalogo import DefinicionAtributo, TipoElemento
 from app.models.elemento import (
     Elemento,
@@ -41,6 +42,7 @@ __all__ = [
     "Fotografia",
     "HistorialElemento",
     "IdentificadorExterno",
+    "IntentoIngreso",
     "Levantamiento",
     "MedioEnlace",
     "OrigenCambio",
@@ -49,6 +51,7 @@ __all__ = [
     "Plano",
     "Recinto",
     "RolVlan",
+    "SesionAcceso",
     "TipoDato",
     "TipoElemento",
     "Tramo",

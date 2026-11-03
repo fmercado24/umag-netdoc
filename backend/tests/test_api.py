@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 API = "/api/v1"
+PNG = b"\x89PNG\r\n\x1a\n"
 
 
 def _crear_piso(cliente, codigo_piso="P01"):
@@ -182,10 +183,10 @@ def test_nuevo_plano_no_sobrescribe_el_archivo_del_historico(cliente):
             files={"archivo": ("cadi-p06.png", contenido, "image/png")},
             data={"ancho_px": "100", "alto_px": "50"},
         ).json()["archivo"]
-        for contenido in (b"version-1", b"version-2")
+        for contenido in (PNG + b"version-1", PNG + b"version-2")
     ]
     assert archivos[0] != archivos[1]
-    assert cliente.get(f"/media/{archivos[0]}").content == b"version-1"
+    assert cliente.get(f"/media/{archivos[0]}").content == PNG + b"version-1"
 
 
 def test_nuevo_plano_no_repite_un_numero_de_version_existente(cliente):
@@ -200,7 +201,7 @@ def test_nuevo_plano_no_repite_un_numero_de_version_existente(cliente):
     archivo = _cargar_plano(cliente, "P11")["archivo"]
     assert archivo == "planos/CADI-P11-v4.png"
     assert ocupado.read_bytes() == b"version-vigente"
-    assert _cargar_plano(cliente, "P11", contenido=b"otra")["archivo"] == "planos/CADI-P11-v5.png"
+    assert _cargar_plano(cliente, "P11", contenido=PNG + b"otra")["archivo"] == "planos/CADI-P11-v5.png"
 
 
 def test_plano_svg_mal_formado_es_rechazado(cliente):
@@ -213,7 +214,42 @@ def test_plano_svg_mal_formado_es_rechazado(cliente):
     assert respuesta.status_code == 422
 
 
-def _cargar_plano(cliente, codigo_piso, tramo=None, contenido=b"lamina"):
+def test_el_contenido_del_plano_debe_corresponder_a_su_extension(cliente):
+    _crear_piso(cliente, "P35")
+    respuesta = cliente.post(
+        f"{API}/edificios/CADI/pisos/P35/plano",
+        files={"archivo": ("cadi-p35.png", b"<script>alert(1)</script>", "image/png")},
+        data={"ancho_px": "100", "alto_px": "50"},
+    )
+    assert respuesta.status_code == 415
+    assert "no corresponde" in respuesta.json()["detail"]
+
+
+def test_un_xml_que_no_es_svg_se_rechaza(cliente):
+    _crear_piso(cliente, "P36")
+    respuesta = cliente.post(
+        f"{API}/edificios/CADI/pisos/P36/plano",
+        files={"archivo": ("cadi-p36.svg", b"<html><body/></html>", "image/svg+xml")},
+        data={"ancho_px": "100", "alto_px": "50"},
+    )
+    assert respuesta.status_code == 422
+    assert "no un SVG" in respuesta.json()["detail"]
+
+
+def test_la_url_de_un_id_externo_solo_admite_http(cliente):
+    _crear_piso(cliente, "P37")
+    codigo = cliente.post(
+        f"{API}/elementos", json={"tipo": "SW", "edificio": "CADI", "piso": "P37"}
+    ).json()["codigo"]
+    ruta = f"{API}/elementos/{codigo}/externos/netbox"
+
+    malo = cliente.put(ruta, json={"id_externo": "1", "url": "javascript:alert(document.cookie)"})
+    assert malo.status_code == 422
+    bueno = cliente.put(ruta, json={"id_externo": "1", "url": "https://netbox.umag.cl/dcim/1"})
+    assert bueno.status_code == 200
+
+
+def _cargar_plano(cliente, codigo_piso, tramo=None, contenido=PNG + b"lamina"):
     datos = {"ancho_px": "100", "alto_px": "50"}
     if tramo:
         datos["tramo"] = tramo
@@ -233,7 +269,7 @@ def test_plano_exige_la_nomenclatura_y_que_corresponda_al_destino(cliente):
     def subir(nombre, tramo="T1"):
         return cliente.post(
             f"{API}/edificios/CADI/pisos/P27/plano",
-            files={"archivo": (nombre, b"x", "image/png")},
+            files={"archivo": (nombre, PNG, "image/png")},
             data={"ancho_px": "100", "alto_px": "50", "tramo": tramo},
         )
 
@@ -261,7 +297,7 @@ def test_laminas_de_distintos_tramos_siguen_vigentes(cliente):
     _crear_piso_con_dos_tramos(cliente, "P07")
     t1 = _cargar_plano(cliente, "P07", "T1")
     t2 = _cargar_plano(cliente, "P07", "T2")
-    t1_nueva = _cargar_plano(cliente, "P07", "T1", b"lamina-v2")
+    t1_nueva = _cargar_plano(cliente, "P07", "T1", PNG + b"lamina-v2")
 
     piso = next(p for p in cliente.get(f"{API}/edificios/CADI/pisos").json() if p["codigo"] == "P07")
     assert {p["id"] for p in piso["planos_vigentes"]} == {t1_nueva["id"], t2["id"]}

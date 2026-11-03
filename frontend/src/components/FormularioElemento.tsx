@@ -6,12 +6,27 @@
  * catálogo del tipo, igual que la vista de lectura: un tipo nuevo se edita sin
  * tocar este componente. Los errores de validación del backend se muestran
  * junto al campo que los provocó.
+ *
+ * El código dice dónde está el elemento y, en un punto de datos, de qué puerto
+ * sale. Si lo editado lo cambia, la API lo actualiza; aquí se muestra antes de
+ * guardar cuál le tocará.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { api, ErrorApi } from '../api/cliente'
+import { api } from '../api/cliente'
+import {
+  ATRIBUTOS_AUTOMATICOS,
+  Campo,
+  ControlAtributo,
+  convertirAtributo,
+  erroresDelServidor,
+  leerUsuario,
+  recordarUsuario,
+  SIN_RACK,
+  SOLO_CONECTADOS,
+} from './camposFormulario'
 import type {
   DefinicionAtributo,
   Elemento,
@@ -58,85 +73,12 @@ const CAMPOS_BASE: CampoBase[] = [
   'observaciones',
 ]
 
-/** Un rack no va dentro de otro y un punto de datos no tiene contenedor. */
-const SIN_RACK = new Set(['R', 'PD'])
-
-/** Quién edita: se recuerda en este navegador para no escribirlo cada vez. */
-const CLAVE_USUARIO = 'netdoc.usuario'
-
-function leerUsuario(): string {
-  try {
-    return localStorage.getItem(CLAVE_USUARIO) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-function recordarUsuario(usuario: string) {
-  try {
-    localStorage.setItem(CLAVE_USUARIO, usuario)
-  } catch {
-    /* sin almacenamiento local: se pedirá de nuevo */
-  }
-}
-
 const aTexto = (valor: unknown) => (valor === null || valor === undefined ? '' : String(valor))
 
 function atributoATexto(valor: unknown, definicion: DefinicionAtributo): string {
   if (valor === null || valor === undefined) return ''
   if (definicion.tipo_dato === 'lista' && Array.isArray(valor)) return valor.join(', ')
   return String(valor)
-}
-
-/** Convierte lo escrito al tipo que exige la ficha; lanza el mensaje de error. */
-function convertirAtributo(texto: string, definicion: DefinicionAtributo): unknown {
-  const limpio = texto.trim()
-  if (limpio === '') return null
-  switch (definicion.tipo_dato) {
-    case 'numero': {
-      const numero = Number(limpio.replace(',', '.'))
-      if (Number.isNaN(numero)) throw new Error('debe ser un número')
-      return numero
-    }
-    case 'booleano':
-      return limpio === 'true'
-    case 'lista':
-      return limpio
-        .split(',')
-        .map((parte) => parte.trim())
-        .filter(Boolean)
-    default:
-      return limpio
-  }
-}
-
-/** Ubica los errores de FastAPI (422 de Pydantic o de la ficha) en su campo. */
-function erroresDelServidor(error: unknown): {
-  porCampo: Record<string, string>
-  general: string | null
-} {
-  const porCampo: Record<string, string> = {}
-  if (!(error instanceof ErrorApi)) {
-    return { porCampo, general: error instanceof Error ? error.message : 'Error desconocido' }
-  }
-  const detalle = error.detalle
-  if (Array.isArray(detalle)) {
-    const sueltos: string[] = []
-    for (const item of detalle) {
-      if (typeof item === 'string') {
-        // Ficha del tipo: "'clave' debe ser numérico".
-        const clave = /^'([^']+)'/.exec(item)?.[1]
-        if (clave) porCampo[`atributos.${clave}`] = item.replace(/^'[^']+'\s*/, '')
-        else sueltos.push(item)
-      } else if (item && typeof item === 'object' && 'loc' in item && 'msg' in item) {
-        const loc = (item as { loc: unknown[] }).loc
-        const mensaje = String((item as { msg: unknown }).msg).replace(/^Value error, /, '')
-        porCampo[String(loc[loc.length - 1])] = mensaje
-      }
-    }
-    return { porCampo, general: sueltos.length ? sueltos.join('; ') : null }
-  }
-  return { porCampo, general: error.message }
 }
 
 interface Props {
@@ -178,19 +120,35 @@ export function FormularioElemento({
   const [guardando, setGuardando] = useState(false)
   const [racks, setRacks] = useState<Elemento[]>([])
   const [recintos, setRecintos] = useState<Recinto[]>([])
+  const inicialRackOrigen = detalle.rack_origen_codigo ?? ''
+  const inicialPuerto = detalle.puerto_en_rack ?? ''
+  const [rackOrigen, setRackOrigen] = useState(inicialRackOrigen)
+  const [puerto, setPuerto] = useState(inicialPuerto)
+  /** Lo que el cambio hace con su código: el que le tocará, o por qué no se puede. */
+  const [consecuencia, setConsecuencia] = useState<{
+    codigo: string | null
+    aviso: string | null
+  } | null>(null)
 
   const admiteRack = !SIN_RACK.has(detalle.tipo_codigo)
+  const conectadoAlRack = SOLO_CONECTADOS.has(detalle.tipo_codigo)
+  const esPunto = detalle.tipo_codigo === 'PD'
+  const edificio = detalle.edificio_codigo
+  const piso = detalle.piso_codigo
+  const tramoActual = detalle.tramo_codigo ?? ''
+
+  // Un punto de datos puede salir de un rack de otro piso.
   useEffect(() => {
-    if (!admiteRack) return
+    if (!admiteRack && !esPunto) return
     let vigente = true
     api
-      .racks(detalle.edificio_codigo, detalle.piso_codigo)
+      .racks(edificio, esPunto ? undefined : piso)
       .then((lista) => vigente && setRacks(lista))
       .catch(() => vigente && setRacks([]))
     return () => {
       vigente = false
     }
-  }, [admiteRack, detalle.edificio_codigo, detalle.piso_codigo])
+  }, [admiteRack, esPunto, edificio, piso])
 
   // Los recintos de las láminas del piso, para elegir el número sin errores.
   useEffect(() => {
@@ -209,9 +167,80 @@ export function FormularioElemento({
   const cambiarAtributo = (clave: string, valor: string) =>
     setAtributos((a) => ({ ...a, [clave]: valor }))
 
+  const fichaVisible = esPunto ? ficha.filter((d) => !ATRIBUTOS_AUTOMATICOS.has(d.clave)) : ficha
+  const puertoEscrito = puerto.trim().toUpperCase()
+  const cambiaPuerto =
+    esPunto && (rackOrigen !== inicialRackOrigen || puertoEscrito !== inicialPuerto)
+
   const hayCambios =
     CAMPOS_BASE.some((c) => base[c] !== inicialBase[c]) ||
-    ficha.some((d) => atributos[d.clave] !== inicialAtributos[d.clave])
+    ficha.some((d) => atributos[d.clave] !== inicialAtributos[d.clave]) ||
+    cambiaPuerto
+
+  // Montado en un rack de otro tramo, pasa a ese tramo: su código lo dice.
+  const rackNuevo = racks.find((r) => r.codigo === base.padre_codigo)
+  const tramoDelRackNuevo =
+    admiteRack &&
+    !conectadoAlRack &&
+    rackNuevo &&
+    base.padre_codigo !== inicialBase.padre_codigo &&
+    (rackNuevo.tramo_codigo ?? '') !== tramoActual
+      ? (rackNuevo.tramo_codigo ?? '')
+      : null
+
+  // El código que recibirá, con una pausa para no consultar en cada tecla.
+  useEffect(() => {
+    setConsecuencia(null)
+    const puertoListo = /^[A-Z0-9][A-Z0-9-]*$/.test(puertoEscrito)
+    const porPuerto = cambiaPuerto && rackOrigen !== '' && puertoListo
+    if (!porPuerto && tramoDelRackNuevo === null) return
+    let vigente = true
+    const espera = setTimeout(() => {
+      const pedido = porPuerto
+        ? api
+            .proximoCodigo({
+              tipo: detalle.tipo_codigo,
+              edificio,
+              piso,
+              ...(tramoActual ? { tramo: tramoActual } : {}),
+              rack_origen: rackOrigen,
+              puerto: puertoEscrito,
+              para: String(detalle.id),
+            })
+            .then((r) =>
+              r.disponible
+                ? { codigo: r.codigo, aviso: null }
+                : {
+                    codigo: null,
+                    aviso: r.eliminado
+                      ? `Ya existe ${r.codigo}, eliminado: recupéralo desde «Ver eliminados», los códigos no se reutilizan.`
+                      : `Ya existe ${r.codigo}: ese puerto ya está documentado.`,
+                  },
+            )
+        : api
+            .previoTraslado(detalle.id, piso, tramoDelRackNuevo || undefined)
+            .then((r) => ({ codigo: r.codigo_nuevo, aviso: r.conflicto }))
+      pedido
+        .then((r) => vigente && setConsecuencia(r))
+        .catch(() => vigente && setConsecuencia(null))
+    }, 250)
+    return () => {
+      vigente = false
+      clearTimeout(espera)
+    }
+  }, [
+    detalle.id,
+    detalle.tipo_codigo,
+    edificio,
+    piso,
+    tramoActual,
+    cambiaPuerto,
+    rackOrigen,
+    puertoEscrito,
+    tramoDelRackNuevo,
+  ])
+
+  const cambiaraCodigo = consecuencia?.codigo != null && consecuencia.codigo !== detalle.codigo
 
   /** Arma el PATCH con lo que cambió; devuelve los errores si algo no se puede enviar. */
   const armarCambios = (): {
@@ -248,6 +277,11 @@ export function FormularioElemento({
       }
     }
     if (Object.keys(nuevosAtributos).length > 0) cambios.atributos = nuevosAtributos
+
+    if (cambiaPuerto) {
+      cambios.rack_origen = rackOrigen || null
+      cambios.puerto = puertoEscrito || null
+    }
 
     return { cambios, errores: encontrados }
   }
@@ -289,18 +323,9 @@ export function FormularioElemento({
 
   // --- Piezas del formulario ----------------------------------------------
   const campo = (id: string, etiqueta: string, control: ReactNode, ayuda?: string) => (
-    <label
-      key={id}
-      className={`formulario__campo ${errores[id] ? 'formulario__campo--error' : ''}`}
-    >
-      <span>{etiqueta}</span>
+    <Campo key={id} etiqueta={etiqueta} error={errores[id]} ayuda={ayuda}>
       {control}
-      {errores[id] ? (
-        <small className="formulario__error">{errores[id]}</small>
-      ) : (
-        ayuda && <small className="formulario__ayuda">{ayuda}</small>
-      )}
-    </label>
+    </Campo>
   )
 
   const texto = (
@@ -333,62 +358,7 @@ export function FormularioElemento({
       </select>,
     )
 
-  const controlAtributo = (definicion: DefinicionAtributo) => {
-    const valor = atributos[definicion.clave] ?? ''
-    const cambiar = (v: string) => cambiarAtributo(definicion.clave, v)
-    switch (definicion.tipo_dato) {
-      case 'enum':
-        return (
-          <select value={valor} onChange={(e) => cambiar(e.target.value)}>
-            <option value="">—</option>
-            {(definicion.opciones ?? []).map((o) => (
-              <option key={String(o)} value={String(o)}>
-                {String(o)}
-              </option>
-            ))}
-          </select>
-        )
-      case 'booleano':
-        return (
-          <select value={valor} onChange={(e) => cambiar(e.target.value)}>
-            <option value="">—</option>
-            <option value="true">Sí</option>
-            <option value="false">No</option>
-          </select>
-        )
-      case 'numero':
-        return (
-          <input
-            type="text"
-            inputMode="decimal"
-            value={valor}
-            onChange={(e) => cambiar(e.target.value)}
-          />
-        )
-      case 'fecha':
-        return <input type="date" value={valor} onChange={(e) => cambiar(e.target.value)} />
-      default:
-        return (
-          <input
-            type="text"
-            value={valor}
-            placeholder={
-              definicion.tipo_dato === 'lista'
-                ? 'Separados por coma'
-                : definicion.tipo_dato === 'mac'
-                  ? 'AA:BB:CC:DD:EE:FF'
-                  : definicion.tipo_dato === 'referencia'
-                    ? 'Código del elemento'
-                    : undefined
-            }
-            onChange={(e) => cambiar(e.target.value)}
-          />
-        )
-    }
-  }
-
   // Un equipo que pasa a montarse en un rack pierde su posición propia.
-  const conectadoAlRack = detalle.tipo_codigo === 'AP' || detalle.tipo_codigo === 'UPS'
   const avisoRack =
     base.padre_codigo !== inicialBase.padre_codigo &&
     base.padre_codigo !== '' &&
@@ -410,12 +380,44 @@ export function FormularioElemento({
       : []),
   ]
 
+  // Los racks de su piso van primero. El actual puede estar fuera de la lista (eliminado).
+  const opcionesRackOrigen = [
+    ...[...racks].sort(
+      (a, b) =>
+        Number(b.piso_codigo === piso) - Number(a.piso_codigo === piso) ||
+        a.codigo.localeCompare(b.codigo),
+    ),
+    ...(inicialRackOrigen && !racks.some((r) => r.codigo === inicialRackOrigen)
+      ? [{ codigo: inicialRackOrigen, etiqueta: null }]
+      : []),
+  ]
+
+  const avisoDeCodigo = consecuencia?.aviso ? (
+    <p className="formulario__aviso" role="status">
+      {consecuencia.aviso}
+    </p>
+  ) : (
+    cambiaraCodigo && (
+      <div className="traslado" role="status">
+        <p className="formulario__codigo">
+          Su código pasará a ser <strong>{consecuencia?.codigo}</strong>
+        </p>
+        <p className="formulario__ayuda">
+          {tramoDelRackNuevo !== null &&
+            `Ese rack está en el tramo ${tramoDelRackNuevo}: el equipo pasa a ese tramo. `}
+          Si lleva el código anterior en su rótulo físico, hay que cambiarlo. {detalle.codigo} queda
+          reservado y sigue llevando a este elemento.
+        </p>
+      </div>
+    )
+  )
+
   return (
     <form
       className="formulario"
       onSubmit={(e) => {
         e.preventDefault()
-        void guardar()
+        if (!consecuencia?.aviso) void guardar()
       }}
     >
       {errorGeneral && <p className="formulario__aviso">{errorGeneral}</p>}
@@ -427,6 +429,41 @@ export function FormularioElemento({
         {selector('estado_condicion', 'Condición', enumeraciones?.estado_condicion ?? [], '—')}
         {selector('criticidad', 'Criticidad', enumeraciones?.criticidad ?? [], '—')}
       </div>
+
+      {esPunto && (
+        <>
+          <h3 className="subtitulo">De dónde sale</h3>
+          <div className="formulario__fila">
+            {campo(
+              'rack_origen',
+              'Rack de origen',
+              <select value={rackOrigen} onChange={(e) => setRackOrigen(e.target.value)}>
+                {!inicialRackOrigen && <option value="">— Aún no se sabe —</option>}
+                {opcionesRackOrigen.map((r) => (
+                  <option key={r.codigo} value={r.codigo}>
+                    {r.etiqueta ? `${r.codigo} · ${r.etiqueta}` : r.codigo}
+                  </option>
+                ))}
+              </select>,
+            )}
+            {campo(
+              'puerto',
+              'Puerto',
+              <input
+                type="text"
+                value={puerto}
+                placeholder="Ej.: D17"
+                onChange={(e) => setPuerto(e.target.value)}
+              />,
+            )}
+          </div>
+          <p className="formulario__ayuda">
+            El prefijo del puerto indica el servicio: D datos, T telefonía, C CCTV. Su código y su
+            rótulo salen de aquí.
+          </p>
+          {avisoDeCodigo}
+        </>
+      )}
 
       <h3 className="subtitulo">Ubicación</h3>
       {texto('ubicacion_descriptiva', 'Ubicación (recinto)')}
@@ -471,6 +508,7 @@ export function FormularioElemento({
           </select>,
           avisoRack,
         )}
+      {!esPunto && avisoDeCodigo}
       {admiteRack &&
         base.padre_codigo !== '' &&
         !conectadoAlRack &&
@@ -491,16 +529,20 @@ export function FormularioElemento({
         {texto('fecha_ultimo_levantamiento', 'Último levantamiento', { tipo: 'date' })}
       </div>
 
-      {ficha.length > 0 && (
+      {fichaVisible.length > 0 && (
         <>
           <h3 className="subtitulo">Ficha de {detalle.tipo_nombre.toLowerCase()}</h3>
-          {ficha.map((definicion) =>
+          {fichaVisible.map((definicion) =>
             campo(
               `atributos.${definicion.clave}`,
               definicion.etiqueta +
                 (definicion.unidad ? ` (${definicion.unidad})` : '') +
                 (definicion.obligatorio ? ' *' : ''),
-              controlAtributo(definicion),
+              <ControlAtributo
+                definicion={definicion}
+                valor={atributos[definicion.clave] ?? ''}
+                onCambio={(v) => cambiarAtributo(definicion.clave, v)}
+              />,
               definicion.ayuda ?? undefined,
             ),
           )}
@@ -546,7 +588,11 @@ export function FormularioElemento({
         >
           Cancelar
         </button>
-        <button type="submit" className="boton" disabled={guardando || !hayCambios}>
+        <button
+          type="submit"
+          className="boton"
+          disabled={guardando || !hayCambios || Boolean(consecuencia?.aviso)}
+        >
           {guardando ? 'Guardando…' : 'Guardar cambios'}
         </button>
       </div>

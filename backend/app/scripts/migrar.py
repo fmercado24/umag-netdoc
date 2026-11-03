@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import make_url
 
 from alembic import command
 from app.core.config import DIR_BACKEND, configuracion
@@ -46,7 +47,8 @@ def migrar(url: str) -> None:
 
 
 def main() -> None:
-    print(f"Base de datos: {configuracion.database_url}")
+    # render_as_string oculta la contraseña: no debe quedar en la terminal.
+    print(f"Base de datos: {make_url(configuracion.database_url).render_as_string()}")
     migrar(configuracion.database_url)
     print("Esquema al día.")
 

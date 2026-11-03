@@ -6,6 +6,8 @@ pydantic>=2.9.0
 pydantic-settings>=2.6.0
 python-multipart>=0.0.12
 prometheus-client>=0.21
+# Hash de la contraseña del administrador (app/servicios/autenticacion.py).
+argon2-cffi>=23.1
 # Teselas de los planos (app/servicios/teselas.py). La variante "binary" trae
 # libvips con soporte de SVG: no hace falta instalar nada en el sistema.
 pyvips[binary]>=3.0

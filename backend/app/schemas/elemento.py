@@ -50,7 +50,8 @@ class ElementoCrear(_RedValidada):
 
     ``codigo`` es opcional: si no se entrega, el sistema lo genera con la
     convención del SOP sección 8 tomando el siguiente correlativo del trío
-    tipo + edificio + piso.
+    tipo + edificio + piso. Un tipo sin correlativo (punto de datos) lo toma de
+    ``rack_origen`` y ``puerto`` o, si aún no se conocen, de un ``SIN-ROTULO-NN``.
     """
 
     codigo: str | None = Field(default=None, max_length=80)
@@ -58,6 +59,15 @@ class ElementoCrear(_RedValidada):
     edificio: str = Field(description="Código del edificio, p. ej. CADI")
     piso: str = Field(description="Código del piso, p. ej. P01")
     tramo: str | None = Field(default=None, description="Código del tramo, p. ej. T2")
+    rack_origen: str | None = Field(
+        default=None, description="Punto de datos: código del rack de donde sale su cableado"
+    )
+    puerto: str | None = Field(
+        default=None,
+        max_length=30,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$",
+        description="Punto de datos: puerto en ese rack, p. ej. D17 (datos) o T03 (telefonía)",
+    )
 
     etiqueta: str | None = Field(default=None, max_length=160)
     ubicacion_descriptiva: str | None = Field(default=None, max_length=200)
@@ -91,11 +101,56 @@ class ElementoCrear(_RedValidada):
     atributos: dict = Field(default_factory=dict, description="Ficha específica del tipo")
 
 
+class TrasladoPedido(BaseModel):
+    """A dónde va, dentro de su edificio. Lo que depende del lugar puede indicarse:
+    si se omite, en el mismo piso se conserva y en otro piso se borra, porque ya no
+    significaría nada."""
+
+    piso: str
+    tramo: str | None = None
+    ubicacion_descriptiva: str | None = Field(default=None, max_length=200)
+    numero_recinto: str | None = Field(default=None, max_length=20)
+    padre_codigo: str | None = None
+    unidad_rack: int | None = Field(default=None, ge=1)
+    usuario: str | None = Field(default=None, max_length=120)
+    comentario: str | None = Field(default=None, max_length=1000)
+
+
+class CambioDeCodigo(BaseModel):
+    codigo_actual: str
+    codigo_nuevo: str
+
+
+class PrevioTraslado(BaseModel):
+    """Lo que pasaría al trasladarlo, para mostrarlo antes de confirmar."""
+
+    codigo_actual: str
+    codigo_nuevo: str | None = None
+    #: Por qué no se puede; nulo si se puede.
+    conflicto: str | None = None
+    #: Lo montado en él, que viaja con él.
+    arrastrados: list[CambioDeCodigo] = Field(default_factory=list)
+    #: Lo conectado a él que deja de estarlo.
+    desconectados: list[str] = Field(default_factory=list)
+    #: Su marcador sigue valiendo: el destino se dibuja en la misma lámina.
+    conserva_posicion: bool = False
+    #: Está en un rack de otro piso: si no se indica otro, queda sin rack.
+    pierde_rack: bool = False
+
+
 class ElementoActualizar(_RedValidada):
-    """Actualización parcial. Todo campo omitido se deja intacto."""
+    """Actualización parcial. Todo campo omitido se deja intacto.
+
+    El código dice dónde está y, en un punto de datos, de qué puerto sale. Lo que
+    cambie eso actualiza también el código: ``tramo``, ``rack_origen`` y ``puerto``,
+    y ``padre_codigo`` si el rack está en otro tramo.
+    """
 
     etiqueta: str | None = None
     tramo: str | None = None
+    #: Punto de datos: de qué rack y puerto sale (van juntos), como en el alta.
+    rack_origen: str | None = None
+    puerto: str | None = Field(default=None, max_length=30, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$")
     #: Lámina donde se dibuja (código de tramo); nulo = la de su propio tramo.
     tramo_lamina: str | None = None
     ubicacion_descriptiva: str | None = None
@@ -263,7 +318,8 @@ class IdentificadorExternoLeer(BaseModel):
 
 class IdentificadorExternoGuardar(BaseModel):
     id_externo: str = Field(min_length=1, max_length=120)
-    url: str | None = Field(default=None, max_length=300)
+    # La ficha la muestra como enlace: otro esquema (javascript:) sería un script.
+    url: str | None = Field(default=None, max_length=300, pattern=r"^https?://")
 
 
 class VlanElemento(BaseModel):
@@ -282,6 +338,9 @@ class ElementoDetalle(ElementoLeer):
     observaciones: str | None = None
     atributos: dict = {}
     padre_codigo: str | None = None
+    #: Punto de datos: el rack y el puerto de donde sale, según su enlace.
+    rack_origen_codigo: str | None = None
+    puerto_en_rack: str | None = None
     hijos: list[ElementoHijo] = []
     fotografias: list[FotografiaLeer] = []
     vlans: list[VlanElemento] = []

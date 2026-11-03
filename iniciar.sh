@@ -1,37 +1,48 @@
 #!/usr/bin/env bash
-# Prepara y levanta NetDoc completo: API, base de datos, edificios y visor.
+# Prepara y levanta NetDoc completo: entorno, base de datos, edificios y visor.
 #
 #   ./iniciar.sh                  prepara lo que falte y levanta todo
 #   ./iniciar.sh --sin-navegador  igual, pero sin abrir el navegador
-#   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh   la API escucha en la red (monitoreo)
+#   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh   atiende en la red, solo por HTTPS
+#   NETDOC_PROXY_CONFIABLE=127.0.0.1 ./iniciar.sh   detrás de un proxy propio
 #
-# La primera vez crea el entorno de Python, instala las dependencias, crea la
-# base con el catálogo e importa cada edificio de data/<código>/ con sus
-# láminas y fotos. Las siguientes aplica las migraciones, instala lo que cambió
-# e importa solo lo nuevo. Las láminas se revisan todas: una modificada en
-# data/<código>/planos entra como versión nueva. Ctrl+C detiene todo.
+# La primera vez instala con sudo los paquetes del sistema que falten (es lo
+# único que requiere permisos de administrador: NetDoc corre con tu usuario),
+# crea el entorno de Python, compila el visor, crea la base con el catálogo,
+# pide la contraseña del administrador e importa cada edificio de
+# data/<código>/ con sus láminas y fotos. Las siguientes aplica las migraciones,
+# instala lo que cambió e importa solo lo nuevo. Las láminas se revisan todas:
+# una modificada en data/<código>/planos entra como versión nueva. Ctrl+C
+# detiene todo.
 
 set -euo pipefail
+
+# Lo que se cree aquí (base, láminas, certificado) queda solo para tu usuario.
+umask 077
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND="$RAIZ/backend"
 FRONTEND="$RAIZ/frontend"
 PY="$BACKEND/.venv/bin/python"
 
-# Deben coincidir con frontend/.env (VITE_API_URL) y con los orígenes CORS
-# del backend, así que no se eligen puertos alternativos si están ocupados.
-PUERTO_API=8000
-PUERTO_VISOR=5173
-# 0.0.0.0 para que la alcancen los contenedores del perfil "monitoreo"
-# (Prometheus, Alertmanager) u otros equipos de la red.
+PUERTO=8000
+# Por omisión solo este equipo. Otra dirección (0.0.0.0 para los contenedores
+# del perfil "monitoreo" u otros equipos de la red) exige HTTPS.
 HOST_API="${NETDOC_API_HOST:-127.0.0.1}"
+# Para usar un certificado propio, déjalo en estas rutas; si faltan, se genera
+# uno autofirmado.
+CERT_TLS="$BACKEND/certs/netdoc.crt"
+CLAVE_TLS="$BACKEND/certs/netdoc.key"
+# Solo afecta a TLS 1.2 (el mínimo que acepta Python): cifrado autenticado y
+# secreto perfecto hacia adelante. Los de TLS 1.3 ya lo son todos.
+CIFRADOS_TLS='ECDHE+AESGCM:ECDHE+CHACHA20'
 
 ABRIR_NAVEGADOR=1
 for argumento in "$@"; do
   case "$argumento" in
     --sin-navegador) ABRIR_NAVEGADOR=0 ;;
     -h | --help)
-      sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -57,12 +68,44 @@ prefijar() { sed -u "s/^/${TENUE}[$1]${NORMAL} /"; }
 huella() { cat "$@" | sha256sum | cut -d' ' -f1; }
 puerto_ocupado() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
-# --- Requisitos ---------------------------------------------------------------
-paso "Revisando requisitos"
+# --- Paquetes del sistema -----------------------------------------------------
+# Lo único que requiere permisos de administrador: si este script corriera
+# entero como root, también la API lo haría y los archivos quedarían de root.
+((EUID != 0)) ||
+  fallar "no ejecutes este script con sudo ni como root: pide los permisos solo para instalar lo que falte"
 
-command -v python3 >/dev/null || fallar "falta python3 (se requiere 3.11 o superior)"
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' ||
-  fallar "se requiere Python 3.11 o superior (hay $(python3 --version 2>&1))"
+python_al_dia() { python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; }
+# La misma condición que pone Vite: ^20.19 o >=22.12.
+node_al_dia() {
+  command -v npm >/dev/null && node -e '
+    const [mayor, menor] = process.versions.node.split(".").map(Number);
+    process.exit(mayor > 22 || (mayor === 22 && menor >= 12) || (mayor === 20 && menor >= 19) ? 0 : 1);
+  ' 2>/dev/null
+}
+
+# Node de nodejs.org, verificado con su suma: para los Ubuntu que traen uno más
+# antiguo que el que exige el visor (24.04 trae el 18).
+instalar_node_oficial() {
+  local base="https://nodejs.org/dist/latest-v24.x" arquitectura archivo temporal
+  case "$(uname -m)" in
+    x86_64) arquitectura=x64 ;;
+    aarch64) arquitectura=arm64 ;;
+    *) fallar "no hay un Node oficial para $(uname -m): instala Node 22.12 o superior a mano" ;;
+  esac
+  temporal="$(mktemp -d)"
+  (
+    cd "$temporal"
+    curl -fsSO "$base/SHASUMS256.txt"
+    archivo="$(awk -v fin="-linux-$arquitectura.tar.gz" 'index($2, fin) { print $2 }' SHASUMS256.txt)"
+    curl -fsSO "$base/$archivo"
+    grep -F "  $archivo" SHASUMS256.txt | sha256sum --check --quiet
+    sudo tar -xzf "$archivo" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude='*.md' --exclude=LICENSE
+  )
+  rm -rf "$temporal"
+}
+
+paso "Revisando requisitos"
 
 # Con nvm, Node no queda en el PATH de los shells no interactivos.
 if ! command -v node >/dev/null && [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
@@ -71,48 +114,86 @@ if ! command -v node >/dev/null && [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; the
   source "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
   set -eu
 fi
-command -v node >/dev/null && command -v npm >/dev/null ||
-  fallar "falta Node.js 20 o superior (por ejemplo, instalado con nvm)"
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 20 ? 1 : 0)' ||
-  fallar "se requiere Node.js 20 o superior (hay $(node --version))"
-command -v curl >/dev/null || fallar "falta curl"
 
-for puerto in "$PUERTO_API" "$PUERTO_VISOR"; do
-  if puerto_ocupado "$puerto"; then
-    fallar "el puerto $puerto ya está en uso. ¿NetDoc ya está corriendo en otra terminal?"
+FALTAN=()
+python_al_dia || FALTAN+=(python3)
+python3 -c 'import ensurepip' 2>/dev/null || FALTAN+=(python3-venv)
+command -v curl >/dev/null || FALTAN+=(curl)
+command -v openssl >/dev/null || FALTAN+=(openssl)
+FALTA_NODE=0
+node_al_dia || FALTA_NODE=1
+
+if ((${#FALTAN[@]} + FALTA_NODE)); then
+  if ! command -v apt-get >/dev/null || ! command -v sudo >/dev/null; then
+    fallar "faltan ${FALTAN[*]:-} $( ((FALTA_NODE)) && echo 'Node.js 22.12+'): instálalos a mano (este script solo sabe hacerlo con apt y sudo)"
   fi
-done
+  paso "Instalando lo que falta con sudo (puede pedir tu contraseña y tardar unos minutos)"
+  # Un repositorio de terceros caído lo hace fallar, aunque lo necesario se pueda instalar.
+  sudo apt-get update -qq || echo "    Aviso: apt-get update informó errores; se intenta instalar igual"
+  if ((FALTA_NODE)); then
+    candidato="$(apt-cache policy nodejs | awk '/Candidate:/ { print $2 }')"
+    if [[ "$candidato" =~ ^[0-9] ]] && dpkg --compare-versions "$candidato" ge 22.12; then
+      FALTAN+=(nodejs npm)
+      FALTA_NODE=0
+    fi
+  fi
+  if ((${#FALTAN[@]})); then
+    echo "    apt: ${FALTAN[*]}"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${FALTAN[@]}" >/dev/null
+  fi
+  if ((FALTA_NODE)); then
+    echo "    Node.js oficial (apt ofrece ${candidato:-ninguno}) en /usr/local"
+    instalar_node_oficial
+  fi
+  hash -r
+fi
+
+python_al_dia || fallar "se requiere Python 3.11 o superior (hay $(python3 --version 2>&1))"
+node_al_dia || fallar "se requiere Node.js 20.19, 22.12 o superior con npm (hay $(node --version 2>&1))"
+
+if puerto_ocupado "$PUERTO"; then
+  fallar "el puerto $PUERTO ya está en uso. ¿NetDoc ya está corriendo en otra terminal?"
+fi
 
 echo "    Python $(python3 --version | cut -d' ' -f2), Node $(node --version)"
 
 # --- Backend ------------------------------------------------------------------
 if [[ ! -x "$PY" ]]; then
   paso "Creando el entorno de Python"
-  python3 -m venv "$BACKEND/.venv" ||
-    fallar "no se pudo crear el entorno. En Ubuntu: sudo apt install python3-venv"
+  python3 -m venv "$BACKEND/.venv" || fallar "no se pudo crear el entorno de Python"
 fi
 "$PY" -m pip --version >/dev/null 2>&1 ||
-  fallar "el entorno $BACKEND/.venv no tiene pip. En Ubuntu: sudo apt install python3-venv, borra .venv y vuelve a intentar"
+  fallar "el entorno $BACKEND/.venv no tiene pip: bórralo y vuelve a intentar"
 
-# Se reinstala solo cuando cambian los requisitos.
+# Se reinstala solo cuando cambian los requisitos. El archivo de bloqueo fija
+# las versiones y sus sumas: un paquete alterado no se instala.
 SELLO_PY="$BACKEND/.venv/.netdoc-requisitos"
-HUELLA_PY="$(huella "$BACKEND"/requirements.txt "$BACKEND"/requirements-dev.txt)"
+HUELLA_PY="$(huella "$BACKEND/requirements.lock")"
 if [[ ! -f "$SELLO_PY" || "$(<"$SELLO_PY")" != "$HUELLA_PY" ]]; then
   paso "Instalando dependencias del backend"
-  "$PY" -m pip install --disable-pip-version-check -q -r "$BACKEND/requirements-dev.txt"
+  "$PY" -m pip install --disable-pip-version-check -q --require-hashes -r "$BACKEND/requirements.lock"
   echo "$HUELLA_PY" >"$SELLO_PY"
 fi
 
 # --- Frontend -----------------------------------------------------------------
-if [[ ! -f "$FRONTEND/.env" ]]; then
-  cp "$FRONTEND/.env.example" "$FRONTEND/.env"
-fi
-
 SELLO_JS="$FRONTEND/node_modules/.netdoc-paquetes"
 if [[ ! -f "$SELLO_JS" || "$(<"$SELLO_JS")" != "$(huella "$FRONTEND/package-lock.json")" ]]; then
   paso "Instalando dependencias del visor"
-  (cd "$FRONTEND" && npm install --no-audit --no-fund --loglevel=error) | sangrar
+  # ci: exactamente lo de package-lock.json, verificando sus sumas.
+  (cd "$FRONTEND" && npm ci --no-audit --no-fund --loglevel=error) | sangrar
   huella "$FRONTEND/package-lock.json" >"$SELLO_JS"
+fi
+
+# La API sirve el visor compilado: se vuelve a compilar solo si cambió.
+SELLO_VISOR="$FRONTEND/dist/.netdoc-compilacion"
+HUELLA_VISOR="$(
+  find "$FRONTEND/src" "$FRONTEND"/*.html "$FRONTEND"/*.json "$FRONTEND/vite.config.ts" -type f -print0 |
+    sort -z | xargs -0 cat | sha256sum | cut -d' ' -f1
+)"
+if [[ ! -f "$SELLO_VISOR" || "$(<"$SELLO_VISOR")" != "$HUELLA_VISOR" ]]; then
+  paso "Compilando el visor"
+  (cd "$FRONTEND" && node_modules/.bin/vite build --logLevel warn) | sangrar
+  echo "$HUELLA_VISOR" >"$SELLO_VISOR"
 fi
 
 # --- Base de datos ------------------------------------------------------------
@@ -123,6 +204,12 @@ paso "Preparando la base de datos"
 # Esquema vía migraciones de Alembic: sirve igual para SQLite y PostgreSQL.
 "$PY" -m app.scripts.migrar 2>&1 | { grep -v "^INFO " || true; } | sangrar
 "$PY" -m app.scripts.cargar_catalogo | sangrar
+
+# La contraseña no está en el repositorio: su hash vive en .env. La primera vez
+# se pide aquí (sin sangrar: necesita la terminal).
+paso "Revisando la contraseña del administrador"
+"$PY" -m app.scripts.definir_clave --si-falta
+[[ ! -f "$RAIZ/.env" ]] || chmod 600 "$RAIZ/.env"
 
 # Cada carpeta data/<código>/ con planillas es un edificio: se importa si aún
 # no tiene elementos (lo ya importado nunca se reemplaza desde aquí).
@@ -140,50 +227,80 @@ paso "Revisando los planos y ubicando los elementos en su recinto"
 paso "Cargando las fotografías"
 "$PY" -m app.scripts.cargar_fotografias | sangrar
 
+# --- Conexión -----------------------------------------------------------------
+# En este equipo basta HTTP, porque el tráfico no sale de él. Hacia la red, la
+# contraseña y los tokens solo viajan cifrados.
+ESQUEMA=http
+OPCIONES_API=(--host "$HOST_API" --port "$PUERTO" --no-server-header)
+case "$HOST_API" in
+  127.* | localhost | ::1) ;;
+  *)
+    ESQUEMA=https
+    if [[ ! -f "$CERT_TLS" || ! -f "$CLAVE_TLS" ]]; then
+      paso "Generando un certificado autofirmado"
+      NOMBRES="DNS:localhost,DNS:host.docker.internal,DNS:$(hostname),IP:127.0.0.1,IP:::1"
+      for ip in $(hostname -I 2>/dev/null); do NOMBRES+=",IP:$ip"; done
+      mkdir -p "$(dirname "$CERT_TLS")"
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -sha256 -nodes -days 397 \
+        -subj "/O=NetDoc UMAG/CN=$(hostname)" -addext "subjectAltName=$NOMBRES" \
+        -keyout "$CLAVE_TLS" -out "$CERT_TLS" 2>/dev/null
+      # No es secreto: Prometheus y Alertmanager lo usan para reconocer a NetDoc.
+      chmod 644 "$CERT_TLS"
+      echo "    $CERT_TLS"
+    fi
+    openssl x509 -checkend 86400 -noout -in "$CERT_TLS" >/dev/null ||
+      fallar "el certificado $CERT_TLS vence en menos de un día: reemplázalo, o bórralo para generar otro"
+    OPCIONES_API+=(--ssl-certfile "$CERT_TLS" --ssl-keyfile "$CLAVE_TLS" --ssl-ciphers "$CIFRADOS_TLS")
+    ;;
+esac
+# Lo que un proxy dice del cliente (su IP, si llegó por HTTPS) solo se cree si
+# se indicó ese proxy: si no, cualquiera podría falsearlo y esquivar el límite
+# de intentos.
+if [[ -n "${NETDOC_PROXY_CONFIABLE:-}" ]]; then
+  OPCIONES_API+=(--proxy-headers --forwarded-allow-ips "$NETDOC_PROXY_CONFIABLE")
+else
+  OPCIONES_API+=(--no-proxy-headers)
+fi
+
 # --- Arranque -----------------------------------------------------------------
-PIDS=()
+PID_API=""
 detener() {
   trap '' INT TERM
-  ((${#PIDS[@]})) || return 0
+  [[ -n "$PID_API" ]] || return 0
   paso "Deteniendo NetDoc"
-  kill "${PIDS[@]}" 2>/dev/null || true
-  wait "${PIDS[@]}" 2>/dev/null || true
+  kill "$PID_API" 2>/dev/null || true
+  wait "$PID_API" 2>/dev/null || true
 }
 trap detener EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-esperar() {
-  local url="$1" pid="$2" nombre="$3"
-  for _ in $(seq 120); do
-    curl -fs -o /dev/null "$url" && return 0
-    kill -0 "$pid" 2>/dev/null || fallar "$nombre se detuvo al arrancar (revisa los mensajes de arriba)"
-    sleep 0.5
-  done
-  fallar "$nombre no respondió en 60 segundos"
-}
+paso "Levantando NetDoc"
 
-paso "Levantando la API y el visor"
+# También a un archivo: si la API cae, lo de la terminal puede haberse perdido.
+REGISTRO="$BACKEND/netdoc.log"
+[[ ! -f "$REGISTRO" ]] || mv -f "$REGISTRO" "$BACKEND/netdoc.anterior.log"
 
-(cd "$BACKEND" && PYTHONUNBUFFERED=1 exec "$PY" -m uvicorn app.main:app \
-  --host "$HOST_API" --port "$PUERTO_API") > >(prefijar api) 2>&1 &
+(cd "$BACKEND" && PYTHONUNBUFFERED=1 exec "$PY" -m uvicorn app.main:app "${OPCIONES_API[@]}") \
+  > >(tee "$REGISTRO" | prefijar api) 2>&1 &
 PID_API=$!
-PIDS+=("$PID_API")
-esperar "http://127.0.0.1:$PUERTO_API/salud" "$PID_API" "La API"
 
-# Sin --clearScreen false, Vite borraría la terminal y con ella los
-# mensajes de la API.
-(cd "$FRONTEND" && exec node_modules/.bin/vite --port "$PUERTO_VISOR" --strictPort \
-  --clearScreen false) > >(prefijar visor) 2>&1 &
-PID_VISOR=$!
-PIDS+=("$PID_VISOR")
-esperar "http://127.0.0.1:$PUERTO_VISOR/" "$PID_VISOR" "El visor"
+# -k: esta comprobación es contra este mismo equipo.
+for _ in $(seq 120); do
+  curl -fsk -o /dev/null "$ESQUEMA://127.0.0.1:$PUERTO/salud" && break
+  kill -0 "$PID_API" 2>/dev/null || fallar "la API se detuvo al arrancar (revisa los mensajes de arriba)"
+  sleep 0.5
+done
+curl -fsk -o /dev/null "$ESQUEMA://127.0.0.1:$PUERTO/salud" || fallar "la API no respondió en 60 segundos"
 
-URL_VISOR="http://localhost:$PUERTO_VISOR"
+URL_VISOR="$ESQUEMA://localhost:$PUERTO"
 printf '\n%sNetDoc está corriendo%s\n' "$VERDE" "$NORMAL"
 printf '    Visor:          %s\n' "$URL_VISOR"
-printf '    API (docs):     http://localhost:%s/docs\n' "$PUERTO_API"
-printf '    %sCtrl+C para detener todo.%s\n\n' "$AMARILLO" "$NORMAL"
+printf '    API (docs):     %s/docs\n' "$URL_VISOR"
+if [[ "$ESQUEMA" == https ]]; then
+  printf '    %sCon el certificado autofirmado, el navegador pedirá aceptarlo la primera vez.%s\n' "$AMARILLO" "$NORMAL"
+fi
+printf '    %sDeja esta terminal abierta: al cerrarla o con Ctrl+C, NetDoc se detiene.%s\n\n' "$AMARILLO" "$NORMAL"
 
 if ((ABRIR_NAVEGADOR)); then
   if command -v wslview >/dev/null; then
@@ -195,8 +312,7 @@ if ((ABRIR_NAVEGADOR)); then
   fi
 fi
 
-# Si cualquiera de los dos servicios cae, se detiene el otro.
-while kill -0 "$PID_API" 2>/dev/null && kill -0 "$PID_VISOR" 2>/dev/null; do
-  sleep 1
-done
-fallar "uno de los servicios se detuvo inesperadamente; se cierra el resto"
+CODIGO=0
+wait "$PID_API" || CODIGO=$?
+PID_API=""
+fallar "la API se detuvo inesperadamente (código $CODIGO): detalle en $REGISTRO"

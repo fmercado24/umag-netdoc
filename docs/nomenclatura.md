@@ -50,13 +50,50 @@ Regla del SOP §8.5: el correlativo crece en orden de documentación dentro del
 trío **tipo + edificio + piso**, y un código nunca se reutiliza.
 
 `siguiente_correlativo()` toma el máximo existente y le suma uno, **incluyendo
-los elementos dados de baja**. La baja es lógica (`activo = false`), así que el
-código de un equipo retirado permanece en la tabla y jamás se reasigna. Un
-`POST` con un código ya usado responde `409 Conflict`.
+los elementos dados de baja y los códigos que dejaron los traslados**. La baja es
+lógica (`activo = false`), así que el código de un equipo retirado permanece en la
+tabla y jamás se reasigna. Un `POST` con un código ya usado responde `409 Conflict`.
 
 Consecuencia visible: dentro de un mismo piso los correlativos son continuos
 aunque los elementos estén en tramos distintos. En el CADI, el piso 1 tiene
 `CADI-AP01-P01-T2` y `CADI-AP02-P01-T3`.
+
+### Al trasladar un elemento
+
+El código dice dónde está el elemento, así que un traslado lo cambia
+(`app/servicios/traslados.py`):
+
+| Traslado | Código |
+|---|---|
+| Otro tramo del mismo piso | Solo cambia el tramo: el correlativo es por piso |
+| Otro piso, con su número libre | Conserva el número, para no perder de vista que es el mismo equipo (en el CADI, el rack N°4 es el `R04` de los rótulos de sus puntos de datos) |
+| Otro piso, con su número ocupado | El siguiente del destino |
+| Punto de datos | Conserva su rack y puerto; si ese código ya existe en el destino, no se puede trasladar |
+| Punto de datos sin rótulo | El `SIN-ROTULO-NN` siguiente del destino |
+
+El código anterior queda en el historial del elemento (`campo = "codigo"`). Por
+eso no se reasigna y sigue encontrando al elemento (`elemento_por_codigo()`): en
+la API, en los avisos de monitoreo, en la carga de fotografías y al importar con
+`--agregar`, que no vuelve a crear lo trasladado. Solo ese mismo elemento puede
+recuperar un código que tuvo, si vuelve a ese lugar.
+
+La etiqueta y el `puerto_origen` no cambian: son lo que dice el rótulo físico.
+
+### Al editar un elemento
+
+Lo mismo vale si la edición cambia algo que forma parte del código
+(`PATCH /elementos/{id}`): el código se actualiza en la misma operación, queda en
+el historial y el anterior queda reservado.
+
+| Edición | Código |
+|---|---|
+| `tramo` | Es un traslado: se aplican las reglas de arriba, y un rack se lleva lo montado |
+| `padre_codigo`, a un rack de otro tramo | Lo montado pasa al tramo del rack; un AP o una UPS no cambia, solo se conecta |
+| `rack_origen` y `puerto` de un punto de datos | El detalle pasa a ser `R04-D17`; también cambian el rótulo, el servicio y el enlace con el rack. Si ese código ya existe, responde `409` |
+| `atributos.puerto_origen`, con un rótulo como `P01-T2-R4-D17` | Igual; si no se entiende como rótulo, se guarda y el código no cambia |
+
+La lámina y el recinto no son parte del código: un elemento puede dibujarse en la
+lámina de otro tramo (`tramo_lamina`).
 
 ## Puntos de datos: el rótulo ya codifica el destino
 
@@ -88,6 +125,9 @@ adivinarlos.
 Los puntos de datos rotulados "Sin etiqueta" reciben `CADI-PD-<piso>-<tramo>-SIN-ROTULO-<n>`
 y quedan sin `puerto_origen`: hay que ir a terreno con el tester para saber a
 qué patch panel llegan.
+
+El alta desde el visor (**+ Agregar elemento**) aplica estas mismas reglas: con rack y puerto
+arma el código, el rótulo, el servicio y el enlace; sin ellos, deja un `SIN-ROTULO-<n>`.
 
 Cuando dos filas traen el mismo rótulo, el segundo elemento se registra con
 sufijo `-DUP2` y la colisión se reporta, para no perder ninguno de los dos

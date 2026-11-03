@@ -8,7 +8,9 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 > **Convenciones.** Los comandos se ejecutan desde la carpeta `umag-netdoc`
 > salvo que se indique `cd backend`. En los ejemplos el edificio nuevo es la
 > Facultad de Ingeniería, código `ING`; reemplácelo por el que corresponda.
-> `<p>` es el código en minúsculas (`ing`).
+> `<p>` es el código en minúsculas (`ing`). Las direcciones de la API y de
+> `http://localhost:8000/docs` piden haber ingresado antes en el visor, en el
+> mismo navegador, como administrador.
 
 ## Resumen
 
@@ -426,7 +428,7 @@ Ubicación en los planos
     - P02 «Sala Eléctrica»: ING-R05-P02-T1
 ```
 
-En el visor (`http://localhost:5173`, o la dirección del servidor), elija
+En el visor (`http://localhost:8000`, o la dirección del servidor), elija
 **Edificio**, **Piso** y **Tramo** en la barra superior. Lo pendiente lleva la
 marca *sin ubicar* en el listado y un aviso en su ficha.
 
@@ -499,9 +501,11 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | Se levantó un tramo más (o más puntos de datos) | Deje la planilla nueva en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo, ya ubicado en su recinto: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila y, si la planilla es de otro piso, pasa a ese piso con el código que le corresponde |
 | Un dato está mal | Corríjalo en el visor con **Editar**: queda en el historial. No reimporte |
 | Se hizo otra visita a terreno | Agregue su fila a `ing-levantamiento.csv` (sección 3.5) y ejecute `./iniciar.sh` |
-| Se retiró un equipo | `http://localhost:8000/docs` → `DELETE /api/v1/elementos/{código}` (baja lógica: el código no se reutiliza) |
+| Se instaló algo nuevo: un switch, puntos de datos, un AP… | En el visor, **+ Agregar elemento**: elija el tipo, el piso y el tramo; el código lo asigna el sistema. Para varios puntos de datos seguidos, **Agregar y seguir** ([detalle](../README.md#agregar-un-elemento)) |
+| Se retiró un equipo | En su ficha, **Eliminar elemento** (baja lógica: el código no se reutiliza; se recupera desde **Ver eliminados**). Un rack se vacía antes |
+| Se cambió un equipo de lugar | En su ficha, **Cambiar piso o tramo**. Su código cambia y el anterior queda reservado: cambia también el rótulo físico si lo lleva |
 | Hay una versión nueva de una lámina | Reemplace el archivo en `data/ing/planos/` (mismo nombre, pasado por `preparar_laminas`), vuelva a leer sus recintos (`extraer_recintos ING ing-p01-t1.svg`) y ejecute `cargar_planos ING` o `./iniciar.sh`: entra como versión nueva y la anterior queda como histórica. Si la lámina conserva su tamaño, las posiciones se mantienen. Si no, el dibujo es otro y los elementos ubicados en ella **quedan sin ubicar**: el comando los lista para volver a marcarlos, y las coordenadas anteriores quedan en su historial |
-| Las planillas estaban muy mal y aún no se ubicó nada | `importar_edificio ING --recargar` reemplaza todo lo importado. **Se pierden las posiciones y el historial** de esos elementos |
+| Las planillas estaban muy mal y aún no se ubicó nada | `importar_edificio ING --recargar` reemplaza todo lo importado. **Se pierden las posiciones, el historial y lo agregado en el visor** |
 
 ## 12. Problemas frecuentes
 

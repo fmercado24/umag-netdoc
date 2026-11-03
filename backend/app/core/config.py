@@ -32,19 +32,43 @@ class Configuracion(BaseSettings):
     #: servicios externos; el modelo es compatible con PostgreSQL sin cambios.
     database_url: str = f"sqlite:///{DIR_BACKEND / 'umag_netdoc.db'}"
 
-    #: Orígenes autorizados para CORS, separados por coma.
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-
     #: Carpeta donde se almacenan planos y fotografías de evidencia.
     dir_media: Path = DIR_BACKEND / "media"
+
+    #: Visor compilado (npm run build). La API lo sirve en la raíz, para que el
+    #: navegador hable con un solo origen.
+    dir_visor: Path = DIR_PROYECTO / "frontend" / "dist"
+
+    #: Tamaño máximo de un plano o fotografía que se carga por la API.
+    carga_max_mb: int = 100
 
     #: Pre-dibujar las láminas en teselas para que el visor se mueva con
     #: fluidez (app.servicios.teselas). Toma ~1 GB de memoria por unos segundos
     #: con las láminas grandes; sin ellas, el visor muestra la lámina original.
     teselas: bool = True
 
-    #: Token compartido con la herramienta de monitoreo (Zabbix). Vacío
-    #: deshabilita el endpoint de sincronización automática de estado.
+    # --- Acceso (app.servicios.autenticacion) ------------------------------
+    #: Único usuario del sistema.
+    admin_usuario: str = "admin-netdoc"
+    #: Hash Argon2id de su contraseña. No tiene valor por omisión: vive en .env,
+    #: fuera del repositorio (python -m app.scripts.definir_clave), y sin él
+    #: nadie puede ingresar.
+    admin_clave_hash: str = ""
+    #: Intentos fallidos que admite un mismo equipo antes de bloquearlo…
+    ingreso_intentos: int = 3
+    #: …y entre todos los equipos, contra un ataque repartido entre muchos.
+    ingreso_intentos_globales: int = 30
+    #: Minutos que cuenta un intento fallido: con el límite alcanzado, lo que
+    #: hay que esperar para volver a intentar.
+    ingreso_bloqueo_minutos: int = 15
+    #: Duración máxima de una sesión, aunque se esté usando…
+    sesion_horas: int = 12
+    #: …y lo que dura sin actividad.
+    sesion_inactividad_minutos: int = 30
+
+    #: Token compartido con los sistemas que no pueden iniciar sesión: los
+    #: webhooks de monitoreo (Zabbix, Alertmanager) y quienes leen el inventario
+    #: (Prometheus, NetBox, GLPI). Vacío deshabilita ese acceso.
     monitoreo_token: str = ""
 
     #: Minutos que un elemento debe permanecer caído antes de marcarse
@@ -64,10 +88,6 @@ class Configuracion(BaseSettings):
     zabbix_plantillas: str = ""
     #: Comunidad SNMP de la interfaz de los hosts nuevos (admite una macro).
     zabbix_comunidad_snmp: str = "{$SNMP_COMMUNITY}"
-
-    @property
-    def lista_cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def dir_planos(self) -> Path:

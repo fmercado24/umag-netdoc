@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    autenticacion,
     catalogo,
     edificios,
     elementos,
@@ -13,6 +14,7 @@ from app.api.v1 import (
 )
 
 router_v1 = APIRouter(prefix="/api/v1")
+router_v1.include_router(autenticacion.router)
 router_v1.include_router(catalogo.router)
 router_v1.include_router(edificios.router)
 router_v1.include_router(elementos.router)

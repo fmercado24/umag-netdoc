@@ -1,5 +1,9 @@
 /** Tipos espejo de los esquemas del backend (app/schemas). */
 
+export interface SesionActiva {
+  usuario: string
+}
+
 export type EstadoOperativo =
   | 'activo'
   | 'inactivo'
@@ -139,6 +143,26 @@ export interface Elemento extends ElementoMapa {
   activo: boolean
 }
 
+/** El código que recibiría un alta, y si sigue libre. */
+export interface CodigoPropuesto {
+  codigo: string
+  disponible: boolean
+  /** Es de un elemento eliminado: se recupera restaurándolo, no se reasigna. */
+  eliminado: boolean
+}
+
+/** Lo que pasaría al trasladarlo. Ver backend/app/servicios/traslados.py. */
+export interface PrevioTraslado {
+  codigo_actual: string
+  codigo_nuevo: string | null
+  /** Por qué no se puede; nulo si se puede. */
+  conflicto: string | null
+  arrastrados: { codigo_actual: string; codigo_nuevo: string }[]
+  desconectados: string[]
+  conserva_posicion: boolean
+  pierde_rack: boolean
+}
+
 export interface CampoFaltante {
   clave: string
   etiqueta: string
@@ -201,6 +225,9 @@ export interface ElementoDetalle extends Elemento {
   observaciones: string | null
   atributos: Record<string, unknown>
   padre_codigo: string | null
+  /** Punto de datos: el rack y el puerto de donde sale, según su enlace. */
+  rack_origen_codigo: string | null
+  puerto_en_rack: string | null
   hijos: ElementoHijo[]
   fotografias: Fotografia[]
   vlans: VlanElemento[]

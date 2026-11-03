@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import configuracion
 from app.models import Elemento, EstadoOperativo, OrigenCambio
+from app.servicios.codigos import elemento_por_codigo
 from app.servicios.historial import registrar_cambios
 
 #: Traducción de lo que reporta la herramienta de monitoreo.
@@ -73,10 +74,8 @@ def buscar_elemento(
     """
     activos = select(Elemento).where(Elemento.activo.is_(True))
     if codigo:
-        elemento = sesion.scalars(
-            activos.where(Elemento.codigo == codigo.strip().upper())
-        ).unique().first()
-        if elemento is not None:
+        elemento = elemento_por_codigo(sesion, codigo.strip().upper())
+        if elemento is not None and elemento.activo:
             return elemento
     if direccion_ip:
         return sesion.scalars(activos.where(Elemento.direccion_ip == direccion_ip)).unique().first()

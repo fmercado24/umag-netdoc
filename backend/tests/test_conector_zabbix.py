@@ -37,6 +37,8 @@ class ZabbixFalso:
     def llamar(self, metodo: str, p: dict):
         self.llamadas.append((metodo, p))
         if metodo == "host.get":
+            if "hostids" in p:
+                return [h for h in self.hosts if h["hostid"] in p["hostids"]]
             return [h for h in self.hosts if h["host"] in p["filter"]["host"]]
         if metodo == "hostgroup.get":
             return [{"groupid": i, "name": n} for n, i in self.grupos.items() if n in p["filter"]["name"]]
@@ -51,7 +53,9 @@ class ZabbixFalso:
             self.hosts.append(host)
             return {"hostids": [host["hostid"]]}
         if metodo == "host.update":
-            self._guardar(next(h for h in self.hosts if h["hostid"] == p["hostid"]), p)
+            host = next(h for h in self.hosts if h["hostid"] == p["hostid"])
+            host["host"] = p["host"]
+            self._guardar(host, p)
             return {"hostids": [p["hostid"]]}
         raise AssertionError(f"método inesperado: {metodo}")
 
@@ -120,3 +124,34 @@ def test_plan_crea_actualiza_y_respeta_lo_ajeno(cliente, sesion):
     # Una segunda pasada no tiene nada que hacer.
     segunda = sincronizar(sesion, ConectorZabbix(zabbix, tipos={"SW"}), edificio="ZBX")
     assert segunda["plan"] == {"sin_cambios": 2}
+
+
+def test_un_elemento_trasladado_renombra_su_host_en_vez_de_duplicarlo(cliente, sesion):
+    cliente.post(f"{API}/edificios", json={"codigo": "ZBT", "nombre": "Edificio de prueba"})
+    for piso in ("P01", "P02"):
+        cliente.post(f"{API}/edificios/ZBT/pisos", json={"codigo": piso, "orden": 1})
+    codigo = cliente.post(
+        f"{API}/elementos",
+        json={"tipo": "SW", "edificio": "ZBT", "piso": "P01", "direccion_ip": "10.91.0.1"},
+    ).json()["codigo"]
+    zabbix = ZabbixFalso()
+    zabbix._siguiente = 5000  # Los ids de otras pruebas siguen en la base.
+    conector = ConectorZabbix(zabbix, tipos={"SW"}, plantillas=[PLANTILLA])
+    assert sincronizar(sesion, conector, aplicar=True, edificio="ZBT")["errores"] == []
+    sesion.commit()
+    assert [h["host"] for h in zabbix.hosts] == [codigo]
+
+    respuesta = cliente.post(f"{API}/elementos/{codigo}/trasladar", json={"piso": "P02"})
+    assert respuesta.status_code == 200, respuesta.text
+    nuevo = respuesta.json()["codigo"]
+    assert nuevo == "ZBT-SW01-P02"
+
+    sesion.expire_all()
+    assert sincronizar(sesion, conector, edificio="ZBT")["plan"] == {"actualizar": 1}
+    assert sincronizar(sesion, conector, aplicar=True, edificio="ZBT")["errores"] == []
+    sesion.commit()
+    assert [h["host"] for h in zabbix.hosts] == [nuevo]
+    assert zabbix.metodos().count("host.create") == 1
+
+    sesion.expire_all()
+    assert sincronizar(sesion, conector, edificio="ZBT")["plan"] == {"sin_cambios": 1}

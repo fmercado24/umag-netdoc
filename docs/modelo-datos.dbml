@@ -313,6 +313,30 @@ Table identificador_externo [headercolor: #e8710a] {
   Note: 'El id que otro sistema le asignó a un elemento.'
 }
 
+Table sesion_acceso [headercolor: #dc2626] {
+  id integer [pk, increment]
+  token_hash varchar(64) [not null, unique]
+  cliente varchar(45) [not null]
+  creada_en float [not null]
+  ultimo_uso float [not null]
+  vence_en float [not null]
+
+  Note: 'Una sesión iniciada. Cerrarla es borrar su fila: deja de valer de inmediato.'
+}
+
+Table intento_ingreso [headercolor: #dc2626] {
+  id integer [pk, increment]
+  cliente varchar(45) [not null]
+  ocurrido_en float [not null]
+
+  indexes {
+    cliente [name: 'ix_intento_ingreso_cliente']
+    ocurrido_en [name: 'ix_intento_ingreso_ocurrido_en']
+  }
+
+  Note: 'Un intento de ingreso fallido, o en curso mientras se verifica la clave.'
+}
+
 Enum categoria_elemento {
   "activo"
   "pasivo"
@@ -432,4 +456,10 @@ TableGroup logica [color: #e8710a] {
   enlace
   identificador_externo
   Note: 'Lógica y conectividad'
+}
+
+TableGroup acceso [color: #dc2626] {
+  sesion_acceso
+  intento_ingreso
+  Note: 'Acceso'
 }

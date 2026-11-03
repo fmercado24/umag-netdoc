@@ -74,7 +74,7 @@ from app.models import (
     Tramo,
     Vlan,
 )
-from app.servicios.codigos import construir_codigo
+from app.servicios.codigos import RE_ROTULO_PD, SERVICIOS_POR_PREFIJO, construir_codigo
 from app.servicios.historial import registrar_alta, registrar_cambios
 from app.servicios.levantamientos import (
     ArchivoLevantamientoInvalido,
@@ -185,11 +185,6 @@ MARCAS: dict[str, str] = {
     "connection trimmerx": "Connection TrimmerX",
 }
 
-#: Prefijo del rótulo de un punto de datos → servicio que presta.
-#: Solo se mapean los prefijos respaldados por la leyenda de VLANs y por los
-#: rótulos de los switches (SW-COM / SW-TEL / SW CCTV). El resto se reporta.
-SERVICIOS_POR_PREFIJO: dict[str, str] = {"D": "datos", "T": "telefonia", "C": "cctv"}
-
 #: "Piso 1 - Tramo 2", o solo "Piso 1" en los edificios sin tramos.
 RE_PISO_TRAMO = re.compile(r"piso\s*(\d+)(?:\s*-\s*tramo\s*(\d+))?", re.IGNORECASE)
 #: "Piso Subterráneo" (o "Subterráneo - Tramo 1"): el piso P00.
@@ -198,9 +193,6 @@ RE_TRAMO = re.compile(r"tramo\s*(\d+)", re.IGNORECASE)
 RE_RACK = re.compile(r"rack\s*-?\s*(\d+)", re.IGNORECASE)
 RE_PUNTOS = re.compile(r"(\d+)\s*puntos?", re.IGNORECASE)
 RE_DISPONIBILIDAD = re.compile(r"disponibilidad\s*(\d+)\s*puntos?", re.IGNORECASE)
-#: "P01-T2-R4-D01", o "P01-R4-D01" en los edificios sin tramos. En el
-#: subterráneo los rótulos empiezan con SUB en vez del piso: "SUB-R11-D05".
-RE_ROTULO_PD = re.compile(r"^(?:P0?(\d+)|SUB)(?:-T(\d+))?-R0?(\d+)-(.+)$", re.IGNORECASE)
 
 NOMBRES_PISO = {
     "P00": "Subterráneo",
@@ -578,6 +570,14 @@ class Importador:
             # rack inferido desde los rótulos no cuenta).
             if tipo != "PD" and elemento.observaciones != OBSERVACION_RACK_INFERIDO:
                 self.tramos_importados.add((elemento.piso.codigo, elemento.tramo_codigo))
+        # Lo que se trasladó ya no se llama como en la planilla: no debe volver a crearse.
+        for elemento in self.sesion.scalars(
+            select(Elemento).where(Elemento.edificio_id == self.edificio.id)
+        ).unique():
+            for entrada in elemento.historial:
+                if entrada.campo == "codigo" and entrada.valor_anterior:
+                    self.existentes.add(entrada.valor_anterior)
+                    self.codigos_usados.add(entrada.valor_anterior)
 
     # -- utilidades ------------------------------------------------------
     def _leer(self, nombre: str) -> list[list[str]]:

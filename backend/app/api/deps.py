@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import obtener_sesion
 from app.models import Edificio, Elemento, Piso, TipoElemento, Tramo
+from app.servicios.codigos import elemento_por_codigo
 
 SesionBD = Annotated[Session, Depends(obtener_sesion)]
 
@@ -60,13 +61,10 @@ def obtener_tipo(sesion: Session, codigo: str) -> TipoElemento:
 
 def obtener_elemento(sesion: Session, id_o_codigo: int | str) -> Elemento:
     """Acepta el id numérico o el código del SOP indistintamente."""
-    consulta = select(Elemento)
     if isinstance(id_o_codigo, int) or str(id_o_codigo).isdigit():
-        consulta = consulta.where(Elemento.id == int(id_o_codigo))
+        elemento = sesion.scalar(select(Elemento).where(Elemento.id == int(id_o_codigo)))
     else:
-        consulta = consulta.where(Elemento.codigo == str(id_o_codigo).upper())
-
-    elemento = sesion.scalar(consulta)
+        elemento = elemento_por_codigo(sesion, str(id_o_codigo).upper())
     if elemento is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No existe el elemento '{id_o_codigo}'")
     return elemento

@@ -10,7 +10,11 @@ Cuando un host entra en problema o se recupera, Zabbix avisa a NetDoc y el
 elemento documentado pasa a "en falla" o "activo", con la entrada en su
 historial (SOP §11.3). Un elemento "en mantenimiento" no cambia.
 
-1. En NetDoc, definir `NETDOC_MONITOREO_TOKEN` (en `.env`) y reiniciar.
+1. En NetDoc, definir `NETDOC_MONITOREO_TOKEN` (en `.env`) y reiniciar con
+   `NETDOC_API_HOST=0.0.0.0 ./iniciar.sh`: hacia la red, NetDoc solo atiende por
+   HTTPS. Si Zabbix rechaza el certificado autofirmado, copiar
+   `backend/certs/netdoc.crt` al servidor de Zabbix, en
+   `/usr/local/share/ca-certificates/`, y ejecutar `sudo update-ca-certificates`.
 2. En Zabbix (6.4 o 7.x): *Alertas → Tipos de medio → Crear tipo de medio*.
    - Tipo: **Webhook**. Nombre: `NetDoc`.
    - Script: el contenido de [`netdoc-webhook.js`](netdoc-webhook.js).
@@ -18,7 +22,7 @@ historial (SOP §11.3). Un elemento "en mantenimiento" no cambia.
 
      | Nombre | Valor |
      |---|---|
-     | `netdoc_url` | `http://<servidor-netdoc>:8000/api/v1/integraciones/monitoreo/estado` |
+     | `netdoc_url` | `https://<servidor-netdoc>:8000/api/v1/integraciones/monitoreo/estado` |
      | `netdoc_token` | el valor de `NETDOC_MONITOREO_TOKEN` |
      | `host` | `{HOST.HOST}` |
      | `ip` | `{HOST.IP}` |

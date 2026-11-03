@@ -1,11 +1,18 @@
 # Servicios opcionales. Con SQLite y sin monitoreo no hace falta nada de esto.
 #
-# Base PostgreSQL (cuando se migre de SQLite):
-#   docker compose up -d db adminer
-#   NETDOC_DATABASE_URL=postgresql+psycopg://netdoc:netdoc@localhost:5432/umag_netdoc
+# Las contraseñas y el token salen de .env (no versionado) y no tienen valor por
+# omisión: sin ellos, el servicio que los necesita no arranca. Todo se publica
+# solo en 127.0.0.1, porque Prometheus y Alertmanager no piden credenciales y
+# muestran las IP del inventario; desde otro equipo, con un túnel SSH:
+#   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 usuario@servidor
 #
-# Monitoreo (Prometheus + blackbox + Alertmanager + Grafana), ver docs/integraciones.md:
-#   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh      # NetDoc visible para los contenedores
+# Base PostgreSQL (cuando se migre de SQLite), con NETDOC_POSTGRES_CLAVE en .env:
+#   docker compose --profile postgres up -d db adminer
+#   NETDOC_DATABASE_URL=postgresql+psycopg://netdoc:<clave>@localhost:5432/umag_netdoc
+#
+# Monitoreo (Prometheus + blackbox + Alertmanager + Grafana), ver docs/integraciones.md,
+# con NETDOC_MONITOREO_TOKEN y NETDOC_GRAFANA_CLAVE en .env:
+#   NETDOC_API_HOST=0.0.0.0 ./iniciar.sh      # NetDoc por HTTPS, visible para los contenedores
 #   docker compose --profile monitoreo up -d
 #   Grafana en http://localhost:3000 (admin / NETDOC_GRAFANA_CLAVE), panel "NetDoc".
 #
@@ -16,11 +23,11 @@ services:
     profiles: [postgres]
     environment:
       POSTGRES_USER: netdoc
-      POSTGRES_PASSWORD: netdoc
+      POSTGRES_PASSWORD: ${NETDOC_POSTGRES_CLAVE:-}
       POSTGRES_DB: umag_netdoc
       TZ: America/Punta_Arenas
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - netdoc_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -37,9 +44,11 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
   # --- Perfil "monitoreo" --------------------------------------------------
+  # NetDoc debe haber arrancado antes con NETDOC_API_HOST=0.0.0.0: es lo que
+  # genera backend/certs/netdoc.crt, con el que se lo reconoce.
   prometheus:
     image: prom/prometheus:v3.14.0
     container_name: netdoc-prometheus
@@ -47,11 +56,14 @@ services:
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/prometheus/reglas.yml:/etc/prometheus/reglas.yml:ro
+      - ./backend/certs/netdoc.crt:/etc/prometheus/netdoc.crt:ro
       - netdoc_prometheus:/prometheus
+    secrets:
+      - netdoc_monitoreo_token
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   # Ping (ICMP) a cada elemento que Prometheus descubre en el inventario.
   blackbox:
@@ -69,23 +81,34 @@ services:
     profiles: [monitoreo]
     volumes:
       - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./backend/certs/netdoc.crt:/etc/alertmanager/netdoc.crt:ro
+    secrets:
+      - netdoc_monitoreo_token
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
 
   grafana:
     image: grafana/grafana-oss:13.0.2
     container_name: netdoc-grafana
     profiles: [monitoreo]
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${NETDOC_GRAFANA_CLAVE:-cambiar}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/netdoc_grafana_clave
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - netdoc_grafana:/var/lib/grafana
+    secrets:
+      - netdoc_grafana_clave
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+
+secrets:
+  netdoc_monitoreo_token:
+    environment: NETDOC_MONITOREO_TOKEN
+  netdoc_grafana_clave:
+    environment: NETDOC_GRAFANA_CLAVE
 
 volumes:
   netdoc_pgdata:

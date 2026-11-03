@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import configuracion
 from app.models import Elemento, Fotografia
+from app.servicios.archivos import contenido_coincide
 
 EXTENSIONES_FOTO = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -39,6 +40,8 @@ def guardar_fotografia(
             f"Formato no admitido: {extension or 'sin extensión'}. "
             f"Se aceptan {', '.join(sorted(EXTENSIONES_FOTO))}"
         )
+    if not contenido_coincide(extension, contenido):
+        raise FormatoFotoNoAdmitido(f"El contenido del archivo no corresponde a un {extension}")
 
     secuencia = len(elemento.fotografias) + 1
     # Nunca se pisa un archivo existente, aunque falten registros en la base.

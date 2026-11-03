@@ -16,10 +16,12 @@ receivers:
   - name: descartar
   - name: netdoc
     webhook_configs:
-      - url: http://host.docker.internal:8000/api/v1/integraciones/alertmanager
+      - url: https://host.docker.internal:8000/api/v1/integraciones/alertmanager
         send_resolved: true
         http_config:
           authorization:
             type: Bearer
-            # El mismo valor de NETDOC_MONITOREO_TOKEN.
-            credentials: CAMBIAR_POR_NETDOC_MONITOREO_TOKEN
+            # Docker compose lo entrega desde NETDOC_MONITOREO_TOKEN en .env.
+            credentials_file: /run/secrets/netdoc_monitoreo_token
+          tls_config:
+            ca_file: /etc/alertmanager/netdoc.crt

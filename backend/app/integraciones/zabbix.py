@@ -137,6 +137,26 @@ class ConectorZabbix(Conector):
             )
         } if elementos else {}
 
+        # El host se llama como el código, que cambia si el elemento se traslada: con
+        # el id guardado se lo reconoce y se renombra, en vez de crear otro.
+        ids_guardados = {
+            x.id_externo: e.codigo
+            for e in elementos
+            for x in e.externos
+            if x.sistema == self.sistema and e.codigo not in existentes
+        }
+        if ids_guardados:
+            for host in self.cliente.llamar(
+                "host.get",
+                {
+                    "output": ["hostid", "host", "name"],
+                    "hostids": list(ids_guardados),
+                    "selectHostGroups": ["name"],
+                    "selectTags": ["tag", "value"],
+                },
+            ):
+                existentes.setdefault(ids_guardados[host["hostid"]], host)
+
         acciones = []
         for elemento in elementos:
             propio = self._propio(elemento)
@@ -171,15 +191,19 @@ class ConectorZabbix(Conector):
                     key=lambda t: t["tag"],
                 ),
             }
-            if actuales == propio:
+            renombrar = host["host"] != elemento.codigo
+            if actuales == propio and not renombrar:
                 acciones.append(Accion("sin_cambios", elemento.codigo, id_externo=host["hostid"]))
                 continue
             distintos = [clave for clave in propio if propio[clave] != actuales[clave]]
+            if renombrar:
+                distintos.insert(0, f"host (era {host['host']})")
             acciones.append(
                 Accion(
                     "actualizar",
                     elemento.codigo,
                     {
+                        "host": elemento.codigo,
                         "name": propio["name"],
                         "grupos": grupos_ajenos + propio["grupos"],
                         "tags": etiquetas_ajenas + propio["tags"],
@@ -224,6 +248,7 @@ class ConectorZabbix(Conector):
                 "host.update",
                 {
                     "hostid": accion.id_externo,
+                    "host": accion.datos["host"],
                     "name": accion.datos["name"],
                     "groups": grupos,
                     "tags": accion.datos["tags"],

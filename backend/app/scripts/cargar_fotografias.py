@@ -22,9 +22,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import SesionLocal
-from app.models import Edificio, Elemento
+from app.models import Edificio
 from app.scripts.importar_edificio import DIR_DATA, dir_datos_de
-from app.servicios.fotografias import EXTENSIONES_FOTO, guardar_fotografia
+from app.servicios.codigos import elemento_por_codigo
+from app.servicios.fotografias import (
+    EXTENSIONES_FOTO,
+    FormatoFotoNoAdmitido,
+    guardar_fotografia,
+)
 
 #: "ING-SW01-P01-T2_2" → "ING-SW01-P01-T2"
 RE_SECUENCIA = re.compile(r"_\d+$")
@@ -40,15 +45,20 @@ def cargar(sesion: Session, carpeta: Path, codigo_edificio: str) -> tuple[int, l
         if not ruta.is_file() or ruta.suffix.lower() not in EXTENSIONES_FOTO:
             continue
         codigo = RE_SECUENCIA.sub("", ruta.stem).upper()
-        elemento = sesion.scalar(
-            select(Elemento).where(Elemento.codigo == codigo, Elemento.edificio_id == edificio.id)
-        )
-        if elemento is None:
+        # Las fotos se llaman como el código, que cambia si el elemento se traslada.
+        elemento = elemento_por_codigo(sesion, codigo)
+        if elemento is None or elemento.edificio_id != edificio.id:
             omitidas.append(f"{ruta.name}: no hay un elemento {codigo} en {edificio.codigo}")
             continue
         if any(f.descripcion == ruta.name for f in elemento.fotografias):
             continue  # ya cargada en una pasada anterior
-        guardar_fotografia(sesion, elemento, ruta.name, ruta.read_bytes(), descripcion=ruta.name)
+        try:
+            guardar_fotografia(
+                sesion, elemento, ruta.name, ruta.read_bytes(), descripcion=ruta.name
+            )
+        except FormatoFotoNoAdmitido as exc:
+            omitidas.append(f"{ruta.name}: {exc}")
+            continue
         cargadas += 1
     return cargadas, omitidas
 

@@ -16,6 +16,8 @@ instituciones multi-edificio: caso UMAG"*.
 | [Manual de monitoreo](docs/manual-monitoreo.md) | Instalar y operar Prometheus, Alertmanager y Grafana, y conectar Zabbix, para que el estado de los equipos se actualice solo |
 | [Plantillas del levantamiento](data/_plantilla/) | Planillas de ejemplo para copiar en `data/<código>/` |
 | [Integraciones y escalabilidad](docs/integraciones.md) | Referencia técnica: métricas, APIs de inventario, conectores, PostgreSQL |
+| [Instalar en un servidor](docs/instalacion-servidor.md) | Dejar NetDoc en un servidor Ubuntu con `instalar-servidor.sh`, con SQLite o PostgreSQL: requisitos, HTTPS, respaldos, actualización y problemas frecuentes |
+| [Seguridad](docs/seguridad.md) | Contraseña, bloqueos, HTTPS y tokens: cómo operarlos, qué controles hay y qué no cubren |
 
 ## Arquitectura
 
@@ -28,29 +30,31 @@ Construcción desde cero (no extensión de NetBox):
 | Backend | FastAPI + SQLAlchemy 2.0 + Pydantic v2 | Validación declarativa de fichas y OpenAPI generado automáticamente |
 | Base de datos | SQLite (desarrollo) → PostgreSQL | Modelo portable: `JSONB` en PostgreSQL, `JSON` en SQLite |
 | Migraciones | Alembic | El mismo esquema versionado en SQLite y PostgreSQL; `render_as_batch` para los `ALTER TABLE` de SQLite |
+| Acceso | Argon2id, sesiones en la base, CSP, HTTPS | Un único administrador y nada accesible sin él; ver [docs/seguridad.md](docs/seguridad.md) |
 | Integraciones | Prometheus, Alertmanager, Grafana, Zabbix | Métricas, descubrimiento de objetivos, webhooks de estado y conector de hosts; ver [docs/integraciones.md](docs/integraciones.md) |
 | Lectura de láminas | RapidOCR (opcional, `requirements-ocr.txt`) | Lee los números de sala y los rótulos de racks de las láminas de CAD, cuyo texto viene convertido en trazos. Solo lo necesita quien prepara las láminas |
 
 ```
 umag-netdoc/
-├── iniciar.sh           Prepara y levanta todo: API, base, edificios nuevos y visor
+├── iniciar.sh           Prepara y levanta todo: paquetes del sistema, visor, base, edificios nuevos y API
+├── instalar-servidor.sh Instala o actualiza NetDoc en un servidor Ubuntu, con SQLite o PostgreSQL
 ├── backend/
 │   ├── app/
 │   │   ├── models/      Modelo de datos (SQLAlchemy)
 │   │   ├── schemas/     Contratos de entrada y salida (Pydantic)
-│   │   ├── servicios/   Nomenclatura, validación, historial, recintos, monitoreo, métricas
+│   │   ├── servicios/   Acceso, nomenclatura, validación, historial, recintos, monitoreo, métricas
 │   │   ├── integraciones/ Conectores con otros sistemas (Zabbix)
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           174 pruebas (pytest)
+│   └── tests/           360 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
 │   └── types/           Espejo de los esquemas del backend
 ├── data/cadi/           Planillas y láminas originales del levantamiento del CADI
 ├── data/_plantilla/     Plantillas para el levantamiento de otros edificios
-├── deploy/              Prometheus, Alertmanager, Grafana y Zabbix
+├── deploy/              Prometheus, Alertmanager, Grafana, Zabbix y el comando netdoc del servidor
 └── docs/                Guías de la DSI, modelo de datos, nomenclatura, hallazgos e integraciones
 ```
 
@@ -79,28 +83,66 @@ Otros edificios se cargan con el mismo formato en `data/<código>/`: ver la
 
 ## Puesta en marcha
 
+Esto es para trabajar en un equipo propio. Para dejar NetDoc en un servidor, con su
+servicio, HTTPS y respaldos, ver la
+[guía de instalación en un servidor](docs/instalacion-servidor.md).
+
 ### Arranque rápido
 
 ```bash
-./iniciar.sh                  # prepara lo que falte y levanta API + visor
+./iniciar.sh                  # prepara lo que falte y levanta NetDoc
 ./iniciar.sh --sin-navegador  # igual, sin abrir el navegador
 ```
 
-La primera vez crea el entorno de Python, instala las dependencias de ambos
-lados, crea la base con el catálogo, importa cada edificio que tenga carpeta en
-`data/` (hoy el CADI) y carga sus láminas y fotografías. Las siguientes veces
-aplica las migraciones pendientes, solo reinstala si cambiaron
-`requirements*.txt` o `package-lock.json`, importa los edificios **nuevos**,
-carga las fotos nuevas y revisa todas las láminas: una nueva o modificada en
-`data/<código>/planos` entra como versión nueva (ver
-[Cargar el plano de un piso](#cargar-el-plano-de-un-piso)). Nunca reimporta
-elementos ni reemplaza sus datos. También genera las teselas que falten:
-cada plano pre-dibujado en imágenes chicas, para que el visor se mueva con
-fluidez sobre láminas de CAD pesadas (de 5 a 20 s por lámina, una sola vez;
-ver [modelo de datos](docs/modelo-datos.md#teselas)). Con `NETDOC_API_HOST=0.0.0.0` la API escucha en la red (necesario
-para el [monitoreo](docs/manual-monitoreo.md)). Deja el visor en
-<http://localhost:5173> y la API en <http://localhost:8000>; **Ctrl+C** detiene
-ambos, y si uno de los dos se cae el script cierra el otro.
+La primera vez instala con `sudo` los paquetes del sistema que falten (en Ubuntu,
+con apt: `python3-venv`, Node.js, curl y openssl; en 24.04, cuyo Node es muy
+antiguo, el oficial de nodejs.org en `/usr/local`). Es lo único que requiere
+permisos de administrador: NetDoc corre con tu usuario, así que el script **no**
+se ejecuta con `sudo`. Después crea el entorno de Python, instala las dependencias
+de ambos lados con sus versiones y sumas fijadas, compila el visor, crea la base
+con el catálogo, pide la contraseña del administrador, importa cada edificio que
+tenga carpeta en `data/` (hoy el CADI) y carga sus láminas y fotografías. Las
+siguientes veces aplica las migraciones pendientes, solo reinstala o recompila si
+algo cambió, importa los edificios **nuevos**, carga las fotos nuevas y revisa
+todas las láminas: una nueva o modificada en `data/<código>/planos` entra como
+versión nueva (ver [Cargar el plano de un piso](#cargar-el-plano-de-un-piso)).
+Nunca reimporta elementos ni reemplaza sus datos. También genera las teselas que
+falten: cada plano pre-dibujado en imágenes chicas, para que el visor se mueva con
+fluidez sobre láminas de CAD pesadas (de 5 a 20 s por lámina, una sola vez; ver
+[modelo de datos](docs/modelo-datos.md#teselas)).
+
+Deja NetDoc en <http://localhost:8000>, solo para este equipo: la API sirve también
+el visor, de modo que el navegador habla con un solo origen. **Deja abierta esa
+terminal:** al cerrarla o con **Ctrl+C**, NetDoc se detiene, y el visor abierto avisa
+que no hay conexión hasta que vuelvas a ejecutar `./iniciar.sh`, sin tener que volver
+a ingresar. Lo que la API informa queda además en `backend/netdoc.log` (el de la
+ejecución anterior, en `netdoc.anterior.log`).
+Con `NETDOC_API_HOST=0.0.0.0` atiende en la red (lo necesita el
+[monitoreo](docs/manual-monitoreo.md)) y entonces **solo por HTTPS**, con un
+certificado propio o, si no hay, uno autofirmado que genera en `backend/certs/`.
+
+### Acceso
+
+El sistema tiene un único usuario, el administrador `admin-netdoc`, y no se puede
+usar sin ingresar con él: la API rechaza toda petición sin sesión, incluidos los
+planos, las fotografías y la documentación interactiva. Detalle en
+[docs/seguridad.md](docs/seguridad.md).
+
+- **Contraseña.** No está en el repositorio, ni siquiera su hash: vive en `.env`,
+  que no se versiona. `iniciar.sh` la pide la primera vez. Para cambiarla, lo que
+  además cierra todas las sesiones:
+
+  ```bash
+  cd backend && .venv/bin/python -m app.scripts.definir_clave   # y reiniciar NetDoc
+  ```
+- **Intentos.** El tercer intento fallido bloquea el ingreso desde ese equipo por
+  15 minutos; reiniciar no lo levanta. Desde el servidor, `definir_clave
+  --desbloquear` lo levanta de inmediato.
+- **Sesión.** Vence a los 30 minutos sin actividad y a las 12 horas en cualquier
+  caso. **Salir**, en la barra superior, la invalida en el servidor.
+- **Otros sistemas.** Los que no pueden iniciar sesión usan
+  `NETDOC_MONITOREO_TOKEN`: los webhooks de monitoreo y las lecturas de `/metrics` y
+  `/api/v1/integraciones/` (ver [integraciones](docs/integraciones.md)).
 
 Los pasos por separado, por si se necesita alguno suelto:
 
@@ -111,18 +153,21 @@ Requiere Python 3.11 o superior.
 ```bash
 cd backend
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pip install --require-hashes -r requirements.lock
 
 # Esquema (migraciones de Alembic) + catálogo (19 edificios, 14 tipos)
 .venv/bin/python -m app.scripts.migrar
 .venv/bin/python -m app.scripts.cargar_catalogo
 
+# Contraseña del administrador: su hash queda en .env, fuera del repositorio
+.venv/bin/python -m app.scripts.definir_clave
+
 # Importar un edificio desde data/<código>/ (el CADI: 389 elementos, 313 enlaces, 4 VLANs)
 .venv/bin/python -m app.scripts.importar_edificio CADI
 .venv/bin/python -m app.scripts.importar_edificio CADI --solo-advertencias  # ensayo, no modifica
 .venv/bin/python -m app.scripts.importar_edificio CADI --agregar           # suma tramos nuevos
-.venv/bin/python -m app.scripts.importar_edificio CADI --recargar          # reemplaza todo: se
-                                                         # pierden posiciones e historial
+.venv/bin/python -m app.scripts.importar_edificio CADI --recargar          # reemplaza todo: se pierden
+                                                         # posiciones, historial y lo agregado en el visor
 .venv/bin/python -m app.scripts.importar_edificio --pendientes             # todos los edificios nuevos
 
 # Láminas: revisar/orientar, leer sus recintos (OCR) y cargar las que no
@@ -141,8 +186,8 @@ python3 -m venv .venv
 .venv/bin/python -m uvicorn app.main:app --reload
 ```
 
-API en <http://localhost:8000>, documentación interactiva en
-<http://localhost:8000/docs>.
+API y visor compilado en <http://localhost:8000>; documentación interactiva, tras
+ingresar, en <http://localhost:8000/docs>.
 
 > En Ubuntu, si `python3 -m venv` crea el entorno sin `pip`, instala
 > `python3-venv` (`sudo apt install python3-venv`) o arranca pip dentro del
@@ -150,24 +195,25 @@ API en <http://localhost:8000>, documentación interactiva en
 
 ### Frontend
 
-Requiere Node.js 20 o superior. En este equipo Node está instalado con nvm y
-no queda en el `PATH` de shells no interactivos, así que hay que cargarlo:
+Requiere Node.js 20.19, 22.12 o superior. `iniciar.sh` compila el visor y la API lo
+sirve. Para trabajar en él con recarga automática, con la API corriendo:
 
 ```bash
-source ~/.nvm/nvm.sh
 cd frontend
-cp .env.example .env     # VITE_API_URL=http://localhost:8000
-npm install
+npm ci
 npm run dev
 ```
 
-Visor en <http://localhost:5173>. `npm run build` genera el bundle de
-producción y `npm run typecheck` valida los tipos sin compilar.
+Visor de desarrollo en <http://localhost:5173>: Vite le reenvía a la API lo que no
+es del visor, y el navegador sigue viendo un solo origen. `npm run build` genera el
+bundle de producción y `npm run typecheck` valida los tipos sin compilar.
 
 ### Pruebas
 
 ```bash
-cd backend && .venv/bin/python -m pytest -q
+cd backend
+.venv/bin/python -m pip install -r requirements-dev.txt   # una vez
+.venv/bin/python -m pytest -q
 ```
 
 ## Cargar el plano de un piso
@@ -178,7 +224,13 @@ posiciones de los elementos se guardan en esas unidades y sobreviven a que el
 archivo se reemplace por una versión reescalada.
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/edificios/CADI/pisos/P01/plano \
+# Se ingresa una vez y se reutiliza la cookie de sesión. La contraseña se lee de la
+# terminal y va por la entrada estándar: así no queda en el historial.
+read -rs CLAVE
+printf '{"usuario": "admin-netdoc", "clave": "%s"}' "$CLAVE" | curl -c sesion.txt \
+  -H "Content-Type: application/json" -d @- http://localhost:8000/api/v1/auth/ingresar
+
+curl -b sesion.txt -X POST http://localhost:8000/api/v1/edificios/CADI/pisos/P01/plano \
   -F "archivo=@cadi-p01.svg" \
   -F "ancho_px=2000" -F "alto_px=1400" \
   -F "nombre=CADI Piso 1"
@@ -244,6 +296,84 @@ Lo que ya tiene posición nunca se mueve solo. Detalle en
 [docs/modelo-datos.md](docs/modelo-datos.md#ubicación-por-recinto) y paso a
 paso en la [guía, sección 4.1](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
 
+## Agregar un elemento
+
+Para lo que se instala después del levantamiento (un switch nuevo, puntos de datos,
+un access point), **+ Agregar elemento**, en el panel izquierdo. Se elige el tipo, el
+piso y el tramo, y el formulario pide lo que corresponde a ese tipo; la ficha sale del
+catálogo, así que un tipo nuevo se agrega sin tocar el código. Antes de guardar muestra
+el código que recibirá, según la convención del SOP:
+
+- **Con correlativo** (switch, rack, AP…): el siguiente de ese tipo en el piso,
+  `CADI-SW09-P01-T1`. Un número dado de baja no se reutiliza.
+- **Punto de datos:** se identifica por su rack y puerto, `CADI-PD-P01-T1-R01-D90`. De
+  ahí salen también el rótulo (`P01-T1-R1-D90`), el servicio (`D` datos, `T` telefonía,
+  `C` CCTV) y el enlace rack → punto de datos, igual que al importar una planilla. Si el
+  puerto ya está documentado, avisa antes de guardar. Si aún no se sabe de dónde viene,
+  queda como `CADI-PD-P01-T1-SIN-ROTULO-01`.
+
+Con el número de una sala del plano queda ubicado ahí; montado en un rack, se ve a través
+de él; si no, la vista va a su piso y un clic en el plano lo deja en su lugar. **Agregar y
+seguir** guarda y deja el formulario listo para el siguiente, con el puerto que sigue:
+sirve para documentar varios puntos de datos seguidos. Los atributos obligatorios de la
+ficha se pueden completar después: mientras tanto, el elemento aparece como incompleto en
+el [reporte del SOP](docs/guia-nuevo-edificio.md#9-completar-las-fichas).
+
+## Cambiar un elemento de piso o tramo
+
+En la ficha, **Cambiar piso o tramo**, dentro de su edificio. Antes de confirmar muestra
+el código que recibirá y qué más cambia. El código dice dónde está el elemento, así que
+cambia con él:
+
+- **En el mismo piso** cambia solo el tramo: `CADI-SW03-P01-T1` → `CADI-SW03-P01-T2`.
+- **En otro piso** conserva su número si está libre; si no, toma el siguiente.
+- **Un punto de datos** conserva su rack y puerto: `CADI-PD-P01-T1-R04-D17` →
+  `CADI-PD-P02-T1-R04-D17`. Si ese código ya existe en el destino, no se puede trasladar.
+
+El código anterior queda reservado y sigue llevando al elemento, para que no se rompa lo
+que aún lo use (una alerta de Zabbix, un enlace guardado). **El rótulo físico no cambia
+solo**: si lleva el código, hay que cambiarlo.
+
+- **Un rack** se lleva lo que tiene montado, que también cambia de código. Si cambia de
+  piso, lo que solo estaba conectado (un AP, una UPS) se queda donde está y se desconecta.
+- **Un equipo montado** sale de su rack, salvo que se elija otro en el destino.
+- **En otro piso** se borran la sala y el número de recinto, salvo que se indiquen otros.
+- **Su marcador** se conserva solo si el destino se dibuja en la misma lámina; si no, la
+  vista va al destino y un clic lo deja en su lugar.
+
+Todo queda en su historial, con quién lo registró y el comentario.
+
+### Lo que al editar cambia el código
+
+Cada edición se guarda al instante en la base. Si cambia algo que forma parte del código,
+el código cambia en la misma operación, con las mismas reglas que un traslado, y **Editar**
+muestra antes de guardar cuál le tocará:
+
+- **Rack y puerto de un punto de datos:** al completar uno `SIN-ROTULO` o cambiar su puerto,
+  `CADI-PD-P01-T3-SIN-ROTULO-01` → `CADI-PD-P01-T3-R04-D17`. También se actualizan el rótulo,
+  el servicio y el enlace con el rack; una etiqueta escrita a mano se respeta.
+- **Montar un equipo en un rack de otro tramo:** pasa al tramo del rack. Un AP o una UPS no
+  cambia: solo se conecta.
+- **El tramo, por la API** (`PATCH`): es un traslado.
+
+Cambiar solo la sala o la lámina no cambia el código: una sala puede dibujarse en la lámina
+de otro tramo, como el rack `CADI-R10-P01-T3`, que está en la lámina del tramo 2.
+
+## Eliminar y restaurar un elemento
+
+En la ficha, **Eliminar elemento**. Es una baja lógica, como exige el SOP §8.5: sale del
+plano y de los listados, pero conserva su historial y su código, que no se vuelve a usar.
+Se puede deshacer al momento o, más adelante, restaurar desde **Ver eliminados**, en el
+panel izquierdo; vuelve con su código y el estado que tenía.
+
+Un rack con equipos montados no se puede eliminar hasta vaciarlo, porque dejarían de
+verse: esos equipos se ubican a través de él. Lo que solo está conectado sigue en su lugar
+y se desconecta; al restaurar el rack vuelve a conectarse, si sigue suelto y en ese piso. Si
+un equipo vuelve cuando su rack ya no está o cambió de lugar, queda sin rack y por ubicar.
+
+Lo agregado queda en la base, no en las planillas de `data/`. `iniciar.sh` nunca lo toca,
+pero `importar_edificio --recargar` reemplaza todo el edificio, y lo borraría.
+
 ## Editar los datos de un elemento
 
 En la ficha del visor, **Editar** abre un formulario con la etiqueta, el estado,
@@ -258,19 +388,22 @@ desde ahí se ve donde esté el rack.
 
 ## Migrar a PostgreSQL
 
+En un servidor, `instalar-servidor.sh` lo instala y prepara, y `--cambiar-base` pasa los
+datos ([guía](docs/instalacion-servidor.md#3-elegir-la-base-de-datos)). En un equipo propio:
+
 ```bash
-docker compose up -d db adminer
+# Con NETDOC_POSTGRES_CLAVE=<clave> en .env: sin ella, PostgreSQL no arranca
+docker compose --profile postgres up -d db adminer
 cd backend
-.venv/bin/python -m pip install -r requirements-postgres.txt
-export NETDOC_DATABASE_URL="postgresql+psycopg://netdoc:netdoc@localhost:5432/umag_netdoc"
+.venv/bin/python -m pip install --require-hashes -r requirements-postgres.lock
+export NETDOC_DATABASE_URL="postgresql+psycopg://netdoc:<clave>@localhost:5432/umag_netdoc"
 .venv/bin/python -m app.scripts.migrar
+.venv/bin/python -m app.scripts.copiar_base --origen sqlite:///umag_netdoc.db --destino "$NETDOC_DATABASE_URL"
 ```
 
 Las migraciones de `alembic/versions` crean el mismo esquema en ambos motores:
 `TipoJSON` usa `JSONB` en PostgreSQL y `JSON` en SQLite, y los enums se guardan
-como `VARCHAR` (sin tipos nativos), validados por la aplicación. Traspasar los
-datos desde SQLite es un paso aparte (ver
-[docs/integraciones.md](docs/integraciones.md#escalabilidad)).
+como `VARCHAR` (sin tipos nativos), validados por la aplicación.
 
 Para cambiar el modelo: editar `app/models`, generar la migración con
 `.venv/bin/alembic revision --autogenerate -m "<qué cambia>"`, revisarla y
@@ -280,6 +413,9 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
+| `POST` | `/api/v1/auth/ingresar` | Inicia la sesión del administrador; el resto de la API la exige (ver [Acceso](#acceso)) |
+| `GET` | `/api/v1/auth/sesion` | El usuario de la sesión activa; 401 si no hay |
+| `POST` | `/api/v1/auth/salir` | Cierra la sesión |
 | `GET` | `/api/v1/catalogo/tipos` | Taxonomía de tipos (SOP §7.2) |
 | `GET` | `/api/v1/catalogo/tipos/{codigo}/ficha` | Atributos de la ficha del tipo (SOP §9.2) |
 | `POST` | `/api/v1/catalogo/tipos` | Da de alta un tipo nuevo **sin migrar el esquema** |
@@ -288,11 +424,15 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `GET` | `/api/v1/edificios/{cod}/pisos/{piso}/recintos` | Recintos de las láminas del piso (número, nombre y dónde se ubican sus elementos) |
 | `GET` | `/api/v1/elementos/mapa?edificio=&piso=&tramo=` | Plano + elementos del piso o del tramo, en una llamada |
 | `GET` | `/api/v1/elementos` | Listado con filtros por tipo, estado, rack y búsqueda libre |
-| `POST` | `/api/v1/elementos` | Alta; genera el código según SOP §8 si no se entrega |
-| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora. Cambiar `numero_recinto` lo lleva a ese recinto |
+| `POST` | `/api/v1/elementos` | Alta; genera el código según SOP §8 si no se entrega. Un punto de datos lo toma de `rack_origen` y `puerto` |
+| `GET` | `/api/v1/elementos/proximo-codigo?tipo=&edificio=&piso=` | El código que recibiría un alta, sin crear nada, y si está disponible |
+| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora. Cambiar `numero_recinto` lo lleva a ese recinto. Si cambia `tramo`, `rack_origen` y `puerto`, o `padre_codigo` a un rack de otro tramo, también actualiza el código |
 | `POST` | `/api/v1/elementos/{id}/ubicar-en-recinto` | Lo deja en su recinto (o un rack, sobre su rótulo) según la lámina |
 | `PATCH` | `/api/v1/elementos/{id}/posicion` | Georreferenciación sobre el plano (SOP §10.3) |
-| `DELETE` | `/api/v1/elementos/{id}` | Baja lógica; el código queda inactivo y no se reasigna (SOP §8.5) |
+| `GET` | `/api/v1/elementos/{id}/traslado?piso=&tramo=` | Qué pasaría al trasladarlo: código nuevo, lo que viaja con él y lo que se desconecta. No cambia nada |
+| `POST` | `/api/v1/elementos/{id}/trasladar` | Lo lleva a otro piso o tramo de su edificio; su código cambia y el anterior queda reservado |
+| `DELETE` | `/api/v1/elementos/{id}?motivo=&usuario=` | Baja lógica; el código queda inactivo y no se reasigna (SOP §8.5). `409` si tiene equipos montados |
+| `POST` | `/api/v1/elementos/{id}/restaurar` | Deshace una baja. La lista de eliminados es `GET /api/v1/elementos?edificio=&solo_eliminados=true` |
 | `GET` | `/api/v1/reportes/resumen?edificio=` | Tablero por edificio |
 | `GET` | `/api/v1/reportes/elementos-incompletos?edificio=` | Reporte exigido por SOP §10.5 punto 22 |
 | `POST` | `/api/v1/integraciones/monitoreo/estado` | Webhook de Zabbix (SOP §11.3) |
@@ -346,7 +486,9 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 174 pruebas en verde.
+- Backend completo y verificado: 360 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
+  ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos
   de datos, del subterráneo al Piso 4: 81 equipos, 308 puntos de datos,
   313 enlaces y 4 VLANs. Ningún rack inferido.
@@ -354,8 +496,7 @@ propio.
   recinto (los 52 montados se ven en su rack). Completitud promedio 54,6 %.
 - Las 9 láminas cargadas, con sus recintos leídos.
 - Frontend compila y corre: `tsc -b` sin errores, build de producción en
-  ~103 kB gzip. `npm audit` informa una vulnerabilidad alta en
-  `source-map-js`, una dependencia de desarrollo de Vite (`npm audit fix`).
+  ~103 kB gzip. `npm audit` y `pip-audit` no informan vulnerabilidades conocidas.
 - 12 hallazgos documentados en
   [docs/hallazgos-cadi.md](docs/hallazgos-cadi.md).
 

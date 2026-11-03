@@ -71,10 +71,9 @@ Para levantar todo con Docker:
 
 ```bash
 # .env en la raíz: NETDOC_MONITOREO_TOKEN=<token> y NETDOC_GRAFANA_CLAVE=<clave>
-# deploy/alertmanager/alertmanager.yml: reemplazar CAMBIAR_POR_NETDOC_MONITOREO_TOKEN
-NETDOC_API_HOST=0.0.0.0 ./iniciar.sh
-docker compose --profile monitoreo up -d
-# Prometheus :9090 · Alertmanager :9093 · Grafana :3000 (carpeta NetDoc)
+NETDOC_API_HOST=0.0.0.0 ./iniciar.sh      # por HTTPS; genera backend/certs/netdoc.crt
+docker compose --profile monitoreo up -d  # toma de .env el token y la clave
+# En el servidor: Prometheus :9090 · Alertmanager :9093 · Grafana :3000 (carpeta NetDoc)
 ```
 
 El ciclo se probó con los binarios oficiales (Prometheus 3.14, Alertmanager
@@ -84,6 +83,12 @@ respondía, la alerta pasó por Alertmanager y el elemento quedó "en falla" con
 el motivo en su historial. Las once consultas del panel de Grafana devolvieron
 datos. La configuración se validó con `promtool` y `amtool`.
 
+Esa prueba es anterior a que NetDoc exigiera HTTPS y token en las lecturas. La
+configuración actual (`credentials_file`, `tls_config`) se comprobó reproduciendo
+con `curl` esas mismas peticiones contra NetDoc, no con esos binarios ni con Docker:
+al levantarlo por primera vez, revise *Status → Target health* (sección A.4 del
+[manual](manual-monitoreo.md)).
+
 El `for` de la regla `NetDocElementoSinRespuesta` (10 minutos) cumple el papel
 del umbral del SOP §11.3.
 
@@ -91,14 +96,22 @@ del umbral del SOP §11.3.
 
 - **Zabbix → NetDoc:** tipo de medio Webhook con
   [`deploy/zabbix/netdoc-webhook.js`](../deploy/zabbix/netdoc-webhook.js).
-  Reconoce el elemento por el nombre del host (su código) o por su IP.
+  Reconoce el elemento por el nombre del host (su código) o por su IP. Un host que aún
+  tenga el código anterior de un elemento trasladado también lo encuentra.
 - **NetDoc → Zabbix:** `python -m app.scripts.sincronizar zabbix [--edificio ING] [--aplicar]`
-  crea y actualiza un host por elemento con IP de gestión.
+  crea y actualiza un host por elemento con IP de gestión. Si el elemento se trasladó,
+  renombra su host con el código nuevo en vez de crear otro; lo reconoce por el id que
+  guardó al crearlo.
 
 Instrucciones paso a paso en el [manual de monitoreo](manual-monitoreo.md#opción-b-zabbix)
 y en [`deploy/zabbix/README.md`](../deploy/zabbix/README.md).
 
 ## Otros inventarios (NetBox, GLPI u otros)
+
+Las consultas bajo `/api/v1/integraciones/` se autentican con
+`Authorization: Bearer <NETDOC_MONITOREO_TOKEN>` y, desde otro equipo, por HTTPS.
+Registrar o quitar un id externo (`/api/v1/elementos/…/externos/…`) exige la sesión
+del administrador (`POST /api/v1/auth/ingresar`).
 
 | Endpoint | Uso |
 |---|---|
@@ -158,30 +171,37 @@ elementos, mostrar el plan, aplicarlo con `--aplicar` y guardar los ids.
   `alembic revision --autogenerate -m "<qué cambia>"`, revisar la migración y
   correr `migrar`. La prueba `test_migraciones` falla si un modelo cambia sin
   su migración.
-- **PostgreSQL.** `docker compose up -d db` y
-  `NETDOC_DATABASE_URL=postgresql+psycopg://…`; `migrar` crea el esquema.
-  Traspasar los datos de SQLite a PostgreSQL es un paso aparte, con
-  `pgloader` o con un script sobre la API de inventario.
-- **Varios procesos.** La API no guarda estado en memoria, así que admite
-  `uvicorn --workers N` o varios contenedores detrás de un balanceador. Las
+- **PostgreSQL.** `instalar-servidor.sh --base postgresql` lo deja listo en un
+  servidor ([guía](instalacion-servidor.md)). En un equipo propio,
+  `docker compose --profile postgres up -d db` y
+  `NETDOC_DATABASE_URL=postgresql+psycopg://…`; `migrar` crea el esquema y
+  `app.scripts.copiar_base` pasa los datos desde SQLite.
+- **Varios procesos.** La API no guarda estado en memoria (las sesiones y los
+  intentos de ingreso están en la base), así que admite `uvicorn --workers N` o
+  varios contenedores detrás de un balanceador. Las
   métricas HTTP son por proceso; para sumarlas se usa el modo multiproceso de
   `prometheus_client` (`PROMETHEUS_MULTIPROC_DIR`). Las de inventario salen de
   la base y son iguales desde cualquier proceso.
 - **Consultas acotadas.** Los listados y la exportación están paginados; el
   plano se pide por piso o tramo.
-- **Seguridad.** Las escrituras de monitoreo exigen `NETDOC_MONITOREO_TOKEN`.
-  La API **no tiene autenticación de usuarios**: en producción debe quedar
-  detrás de la VPN o de un proxy con autenticación. El paso natural siguiente
-  es integrar el directorio de la UMAG (LDAP u OIDC).
+- **Seguridad.** Toda la API, los planos y las fotografías exigen la sesión del
+  único administrador; los sistemas externos usan `NETDOC_MONITOREO_TOKEN`; hacia la
+  red solo se atiende por HTTPS. Ver [seguridad.md](seguridad.md). El paso natural
+  siguiente es integrar el directorio de la UMAG (LDAP u OIDC).
 
 ## Variables de configuración
 
 | Variable | Uso |
 |---|---|
 | `NETDOC_DATABASE_URL` | Base de datos (SQLite por omisión) |
-| `NETDOC_MONITOREO_TOKEN` | Token de los webhooks de Zabbix y Alertmanager; vacío los deshabilita |
+| `NETDOC_ADMIN_USUARIO`, `NETDOC_ADMIN_CLAVE_HASH` | Usuario administrador y hash de su contraseña, que escribe `app.scripts.definir_clave` |
+| `NETDOC_INGRESO_INTENTOS`, `NETDOC_INGRESO_INTENTOS_GLOBALES`, `NETDOC_INGRESO_BLOQUEO_MINUTOS` | Intentos fallidos por equipo (3) y entre todos (30), y minutos que cuenta cada uno (15) |
+| `NETDOC_SESION_HORAS`, `NETDOC_SESION_INACTIVIDAD_MINUTOS` | Duración máxima de una sesión (12) y sin actividad (30) |
+| `NETDOC_CARGA_MAX_MB` | Tamaño máximo de un plano o fotografía que se carga por la API (100) |
+| `NETDOC_MONITOREO_TOKEN` | Token de los webhooks de Zabbix y Alertmanager y de las lecturas de `/metrics` y `/api/v1/integraciones/`; vacío los deshabilita |
 | `NETDOC_MONITOREO_MINUTOS_FALLA` | Umbral de caída cuando el evento informa los minutos |
 | `NETDOC_ZABBIX_URL`, `NETDOC_ZABBIX_TOKEN` | API de Zabbix para el conector |
 | `NETDOC_ZABBIX_GRUPO_RAIZ`, `NETDOC_ZABBIX_TIPOS`, `NETDOC_ZABBIX_PLANTILLAS`, `NETDOC_ZABBIX_COMUNIDAD_SNMP` | Qué y cómo se crea en Zabbix |
-| `NETDOC_API_HOST` | Interfaz donde escucha la API en `iniciar.sh` (`0.0.0.0` para el perfil de monitoreo) |
-| `NETDOC_GRAFANA_CLAVE` | Clave del usuario `admin` de Grafana en `docker-compose.yml` |
+| `NETDOC_API_HOST` | Interfaz donde escucha `iniciar.sh`; fuera de este equipo, solo por HTTPS (`0.0.0.0` para el perfil de monitoreo) |
+| `NETDOC_PROXY_CONFIABLE` | IP de un proxy propio en `iniciar.sh`, del que se cree lo que informa sobre el cliente |
+| `NETDOC_GRAFANA_CLAVE`, `NETDOC_POSTGRES_CLAVE` | Claves de `docker-compose.yml`, sin valor por omisión |
