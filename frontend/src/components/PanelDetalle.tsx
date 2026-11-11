@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 import { urlMedia } from '../api/cliente'
 import type {
@@ -221,7 +221,10 @@ export function PanelDetalle({
           )}
 
           <div className="insignias">
-            <span className="insignia" style={{ background: detalle.color_estado }}>
+            <span
+              className="insignia"
+              style={{ '--color-insignia': detalle.color_estado } as CSSProperties}
+            >
               {detalle.estado_operativo.replace('_', ' ')}
             </span>
             {detalle.estado_condicion && (

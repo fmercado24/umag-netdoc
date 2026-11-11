@@ -1,17 +1,26 @@
 /* Estilos del visor NetDoc UMAG. */
 
 :root {
+  /* Texto: al menos 4,5:1 sobre los paneles y el fondo (WCAG AA). */
   --tinta: #0f172a;
-  --tinta-suave: #475569;
-  --tinta-tenue: #94a3b8;
-  --fondo: #f1f5f9;
+  --tinta-suave: #334155;
+  --tinta-tenue: #55637a;
+  --fondo: #dde4ec;
+  --fondo-suave: #eef2f7;
   --superficie: #ffffff;
-  --borde: #e2e8f0;
+  /* Separadores: agrupan, pero no compiten con lo que se puede usar. */
+  --borde: #c3ccd8;
+  /* Lo que se puede usar o rellenar: al menos 3:1 sobre el panel. */
+  --borde-control: #6b7a90;
   --acento: #4338ca;
-  --acento-suave: #eef2ff;
+  --acento-fuerte: #3730a3;
+  --acento-suave: #e4e8ff;
   --error: #b91c1c;
+  --error-fuerte: #991b1b;
+  --error-suave: #fef2f2;
   --radio: 8px;
-  --sombra: 0 1px 2px rgb(15 23 42 / 0.06), 0 4px 12px rgb(15 23 42 / 0.05);
+  --sombra: 0 1px 3px rgb(15 23 42 / 0.16), 0 6px 16px rgb(15 23 42 / 0.12);
+  --sombra-panel: 0 0 8px rgb(15 23 42 / 0.2);
 
   color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -31,6 +40,11 @@ body {
 button {
   font: inherit;
   cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
 }
 
 code {
@@ -104,9 +118,13 @@ code {
   display: flex;
   align-items: flex-end;
   gap: 24px;
+  position: relative;
+  z-index: 1001;
   padding: 12px 20px;
   background: var(--superficie);
+  border-top: 3px solid var(--acento);
   border-bottom: 1px solid var(--borde);
+  box-shadow: var(--sombra-panel);
 }
 
 .marca {
@@ -161,28 +179,72 @@ code {
 }
 
 .campo > span {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--tinta-tenue);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta);
 }
 
 .campo select,
 .campo input {
   width: 100%;
   min-width: 0;
+  min-height: 34px;
   font: inherit;
-  padding: 6px 8px;
-  border: 1px solid var(--borde);
+  padding: 7px 9px;
   border-radius: var(--radio);
-  background: var(--superficie);
-  color: var(--tinta);
 }
 
+/* Todo lo que se rellena: se reconoce como casilla y responde al usarlo. */
+.campo select,
+.campo input,
+.formulario__campo input,
+.formulario__campo select,
+.formulario__campo textarea,
+.selector-lamina {
+  border: 1px solid var(--borde-control);
+  background: var(--superficie);
+  color: var(--tinta);
+  box-shadow: inset 0 1px 2px rgb(15 23 42 / 0.1);
+}
+
+.campo select:hover:not(:disabled),
+.campo input:hover:not(:disabled),
+.formulario__campo input:hover:not(:disabled),
+.formulario__campo select:hover:not(:disabled),
+.formulario__campo textarea:hover:not(:disabled),
+.selector-lamina:hover:not(:disabled) {
+  border-color: var(--tinta-suave);
+}
+
+/* El contorno transparente lo dibuja Windows en modo de alto contraste. */
 .campo select:focus,
-.campo input:focus {
-  outline: 2px solid var(--acento);
-  outline-offset: -1px;
+.campo input:focus,
+.formulario__campo input:focus,
+.formulario__campo select:focus,
+.formulario__campo textarea:focus,
+.selector-lamina:focus {
+  outline: 2px solid transparent;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px rgb(67 56 202 / 0.3);
+}
+
+.campo input::placeholder,
+.formulario__campo input::placeholder,
+.formulario__campo textarea::placeholder {
+  color: var(--tinta-tenue);
+  opacity: 1;
+}
+
+.campo select:disabled,
+.campo input:disabled,
+.formulario__campo input:disabled,
+.formulario__campo select:disabled,
+.formulario__campo textarea:disabled {
+  border-color: var(--borde);
+  background: var(--fondo-suave);
+  color: var(--tinta-tenue);
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 /* Logo de la universidad sobre el campus, en el extremo derecho de la barra. */
@@ -229,7 +291,7 @@ code {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 20px;
-  background: #fef2f2;
+  background: var(--error-suave);
   color: var(--error);
   border-bottom: 1px solid #fecaca;
 }
@@ -238,16 +300,20 @@ code {
 .panel-lateral {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  position: relative;
+  z-index: 1001;
   padding: 16px;
   background: var(--superficie);
   border-right: 1px solid var(--borde);
+  box-shadow: var(--sombra-panel);
   overflow-y: auto;
 }
 
+/* Con una ventana baja, el panel se desplaza: la lista no debe desaparecer. */
 .bloque--crece {
   flex: 1;
-  min-height: 0;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
 }
@@ -257,27 +323,38 @@ code {
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--borde);
 }
 
 .bloque__titulo h2 {
   margin: 0;
   font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tinta);
+}
+
+.contador {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta-suave);
+}
+
+.subtitulo {
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--borde);
+  font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--tinta-suave);
 }
 
-.contador {
-  font-size: 12px;
-  color: var(--tinta-tenue);
-}
-
-.subtitulo {
-  margin: 14px 0 6px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--tinta-tenue);
+.panel-lateral .subtitulo {
+  margin: 10px 0 6px;
 }
 
 .fichas {
@@ -291,10 +368,10 @@ code {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border: 1px solid var(--borde);
+  border: 1px solid var(--borde-control);
   border-radius: 999px;
   background: var(--superficie);
-  color: var(--tinta-suave);
+  color: var(--tinta);
   font-size: 12px;
 }
 
@@ -305,11 +382,14 @@ code {
 
 .ficha:hover {
   border-color: var(--color-ficha);
+  background: var(--fondo-suave);
 }
 
-.ficha--activa {
-  background: var(--color-ficha);
-  border-color: var(--color-ficha);
+/* Los colores del catálogo pueden ser claros: oscurecidos, el blanco se lee. */
+.ficha--activa,
+.ficha--activa:hover {
+  background: color-mix(in srgb, var(--color-ficha) 72%, black);
+  border-color: color-mix(in srgb, var(--color-ficha) 72%, black);
   color: #fff;
 }
 
@@ -319,7 +399,6 @@ code {
 
 .ficha__conteo {
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
 }
 
 .punto {
@@ -371,11 +450,13 @@ code {
 }
 
 .item:hover {
-  background: var(--fondo);
+  background: var(--fondo-suave);
 }
 
-.item--activo {
+.item--activo,
+.item--activo:hover {
   background: var(--acento-suave);
+  box-shadow: inset 3px 0 0 var(--acento);
 }
 
 .item__punto {
@@ -413,7 +494,7 @@ code {
 }
 
 .item__marca {
-  font-size: 9px;
+  font-size: 10px;
   color: #92400e;
   background: #fef3c7;
   padding: 1px 4px;
@@ -448,7 +529,7 @@ code {
 }
 
 .item__abrir:hover:not(:disabled) {
-  background: var(--fondo);
+  background: var(--fondo-suave);
 }
 
 .item__abrir:disabled {
@@ -494,7 +575,12 @@ code {
 }
 
 /* Contenedor que se muestra solo porque algo montado en él cumple el filtro. */
-.item--contexto {
+.item--contexto strong {
+  color: var(--tinta-tenue);
+  font-weight: 500;
+}
+
+.item--contexto .item__punto {
   opacity: 0.55;
 }
 
@@ -502,7 +588,7 @@ code {
 .visor {
   position: relative;
   min-width: 0;
-  background: #e7edf3;
+  background: var(--fondo);
 }
 
 .visor--posicionando .leaflet-container {
@@ -512,7 +598,7 @@ code {
 .mapa {
   width: 100%;
   height: 100%;
-  background: #e7edf3;
+  background: var(--fondo);
 }
 
 .visor--vacio {
@@ -581,13 +667,13 @@ code {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: var(--color-marcador);
+  background: color-mix(in srgb, var(--color-marcador) 82%, black);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: -0.02em;
   border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgb(15 23 42 / 0.35);
+  box-shadow: 0 0 0 1px rgb(15 23 42 / 0.55), 0 2px 6px rgb(15 23 42 / 0.5);
 }
 
 .marcador--activo {
@@ -620,9 +706,12 @@ code {
 
 /* --- Panel de detalle ---------------------------------------------------- */
 .panel-detalle {
+  position: relative;
+  z-index: 1001;
   padding: 16px;
   background: var(--superficie);
   border-left: 1px solid var(--borde);
+  box-shadow: var(--sombra-panel);
   overflow-y: auto;
 }
 
@@ -659,10 +748,16 @@ code {
 .boton-cerrar {
   border: 0;
   background: transparent;
+  border-radius: 6px;
   font-size: 22px;
   line-height: 1;
-  color: var(--tinta-tenue);
+  color: var(--tinta-suave);
   padding: 0 4px;
+}
+
+.boton-cerrar:hover {
+  background: var(--fondo-suave);
+  color: var(--tinta);
 }
 
 .insignias {
@@ -675,15 +770,17 @@ code {
 .insignia {
   padding: 3px 9px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--color-insignia) 78%, black);
   font-size: 11px;
+  font-weight: 600;
   color: #fff;
   text-transform: capitalize;
 }
 
 .insignia--suave {
-  background: var(--fondo);
+  background: var(--fondo-suave);
   color: var(--tinta-suave);
-  border: 1px solid var(--borde);
+  border: 1px solid var(--borde-control);
 }
 
 .completitud {
@@ -744,16 +841,29 @@ code {
 
 .boton {
   padding: 7px 12px;
-  border: 0;
+  border: 1.5px solid transparent;
   border-radius: var(--radio);
   background: var(--acento);
   color: #fff;
-  font-weight: 500;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.35);
+  transition: background-color 0.12s ease;
+}
+
+.boton:hover:not(:disabled) {
+  background: var(--acento-fuerte);
+}
+
+.boton:active:not(:disabled) {
+  box-shadow: none;
+  transform: translateY(1px);
 }
 
 .boton:disabled {
-  background: var(--borde);
+  border-color: var(--borde);
+  background: #e2e8f0;
   color: var(--tinta-tenue);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -763,27 +873,30 @@ code {
   padding: 0;
   color: var(--acento);
   font-size: inherit;
+  font-weight: 500;
   text-decoration: underline;
+}
+
+.boton-enlace:hover {
+  color: var(--acento-fuerte);
 }
 
 .nota {
   color: var(--tinta-tenue);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .nota-seccion {
   margin: -2px 0 6px;
   color: var(--tinta-tenue);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .selector-lamina {
   font: inherit;
   font-size: 12px;
   padding: 2px 4px;
-  border: 1px solid var(--borde);
   border-radius: 6px;
-  background: var(--superficie);
 }
 
 /* Varios puntos de datos en el mismo lugar del plano. */
@@ -824,19 +937,37 @@ code {
 }
 
 .boton--secundario {
-  background: var(--acento-suave);
+  border-color: var(--acento);
+  background: var(--superficie);
   color: var(--acento);
+  box-shadow: none;
+}
+
+.boton--secundario:hover:not(:disabled) {
+  background: var(--acento-suave);
+  color: var(--acento-fuerte);
 }
 
 /* Claro y a la vista, pero sin competir con las acciones de cada día. */
 .boton--peligro {
-  background: #fef2f2;
+  border-color: var(--error);
+  background: var(--superficie);
   color: var(--error);
+  box-shadow: none;
+}
+
+.boton--peligro:hover:not(:disabled) {
+  background: var(--error-suave);
+  color: var(--error-fuerte);
 }
 
 .boton--peligro-fuerte {
   background: var(--error);
   color: #fff;
+}
+
+.boton--peligro-fuerte:hover:not(:disabled) {
+  background: var(--error-fuerte);
 }
 
 .boton--eliminados {
@@ -912,7 +1043,7 @@ code {
 }
 
 .lista-hijos__item:hover {
-  background: var(--fondo);
+  background: var(--fondo-suave);
 }
 
 /* --- Vista frontal del rack ---------------------------------------------- */
@@ -977,7 +1108,7 @@ code {
   font-size: 10px;
   font-weight: 700;
   text-align: center;
-  color: var(--color-tipo);
+  color: color-mix(in srgb, var(--color-tipo) 65%, black);
 }
 
 .rack__texto {
@@ -1032,18 +1163,20 @@ code {
 .dato {
   display: grid;
   grid-template-columns: 140px 1fr;
-  gap: 8px;
-  padding: 6px 10px;
   background: var(--superficie);
 }
 
 .dato dt {
+  padding: 6px 10px;
+  background: var(--fondo-suave);
   font-size: 12px;
-  color: var(--tinta-tenue);
+  font-weight: 500;
+  color: var(--tinta-suave);
 }
 
 .dato dd {
   margin: 0;
+  padding: 6px 10px;
   font-size: 12px;
   word-break: break-word;
 }
@@ -1135,12 +1268,12 @@ code {
 
 .boton-editar {
   padding: 4px 10px;
-  border: 1px solid var(--borde);
+  border: 1.5px solid var(--acento);
   border-radius: 6px;
   background: var(--superficie);
   color: var(--acento);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .boton-editar:hover {
@@ -1171,8 +1304,9 @@ code {
 }
 
 .formulario__campo > span {
-  font-size: 11px;
-  color: var(--tinta-suave);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta);
 }
 
 .formulario__campo input,
@@ -1182,45 +1316,38 @@ code {
   min-width: 0;
   font: inherit;
   font-size: 13px;
-  padding: 5px 7px;
-  border: 1px solid var(--borde);
+  padding: 7px 9px;
   border-radius: 6px;
-  background: var(--superficie);
-  color: var(--tinta);
 }
 
 .formulario__campo textarea {
   resize: vertical;
 }
 
-.formulario__campo input:focus,
-.formulario__campo select:focus,
-.formulario__campo textarea:focus {
-  outline: 2px solid var(--acento);
-  outline-offset: -1px;
-}
-
 .formulario__campo--error input,
 .formulario__campo--error select,
 .formulario__campo--error textarea {
   border-color: var(--error);
+  background: var(--error-suave);
 }
 
 .formulario__error {
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--error);
 }
 
 .formulario__ayuda {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tinta-tenue);
 }
 
 .formulario__aviso {
   margin: 8px 0 0;
   padding: 8px 10px;
+  border: 1px solid #fca5a5;
   border-radius: 6px;
-  background: #fef2f2;
+  background: var(--error-suave);
   color: var(--error);
   font-size: 12px;
 }
@@ -1237,11 +1364,13 @@ code {
 }
 
 .formulario__codigo {
+  border: 1px solid var(--acento);
   background: var(--acento-suave);
-  color: var(--acento);
+  color: var(--acento-fuerte);
 }
 
 .formulario__listo {
+  border: 1px solid #6ee7b7;
   background: #ecfdf5;
   color: #047857;
 }
@@ -1255,7 +1384,12 @@ code {
   margin: 8px -16px -16px;
   padding: 10px 16px;
   background: var(--superficie);
-  border-top: 1px solid var(--borde);
+  border-top: 1px solid var(--borde-control);
+  box-shadow: 0 -4px 10px rgb(15 23 42 / 0.12);
+}
+
+.formulario__acciones .boton {
+  white-space: nowrap;
 }
 
 .error {
@@ -1271,17 +1405,49 @@ code {
     overflow-y: auto;
   }
 
+  /* Una sola columna: se desplaza el cuerpo entero, no cada panel. Si cada uno se
+     desplazara por su cuenta, el mapa les dejaría solo el espacio que le sobra. */
   .panel-lateral {
     border-right: 0;
     border-bottom: 1px solid var(--borde);
+    overflow: visible;
+  }
+
+  .bloque--crece {
+    flex: none;
+    min-height: 0;
+  }
+
+  .lista {
+    flex: none;
+    max-height: 320px;
   }
 
   .panel-detalle {
     border-left: 0;
     border-top: 1px solid var(--borde);
+    overflow: visible;
   }
 
+  .formulario__acciones {
+    bottom: 0;
+  }
+
+  /* Los selectores, en su propia fila: no caben junto a la marca y el logo. */
   .barra-superior {
     flex-wrap: wrap;
+    justify-content: space-between;
+    row-gap: 8px;
+  }
+
+  .controles {
+    order: 1;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  /* Sin esto, el nombre largo del edificio ocuparía toda una fila. */
+  .campo--edificio {
+    flex: 1 1 180px;
   }
 }
