@@ -152,7 +152,7 @@ de retención permanente que exige la sección 12 del SOP.
 
 | Tabla | Rol |
 |---|---|
-| `sesion_acceso` | Sesiones del administrador: la huella del token de la cookie, de dónde se inició, último uso y vencimiento. Borrar la fila cierra la sesión ([seguridad](seguridad.md)) |
+| `sesion_acceso` | Sesiones iniciadas: la huella del token de la cookie, de quién es, de dónde se inició, último uso y vencimiento. Borrar la fila cierra la sesión ([seguridad](seguridad.md)) |
 | `intento_ingreso` | Intentos de ingreso fallidos de la última ventana, por equipo: es lo que limita los intentos, también con varios procesos y tras un reinicio |
 
 ## Enumeraciones

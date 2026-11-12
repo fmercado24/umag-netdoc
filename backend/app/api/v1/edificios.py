@@ -13,7 +13,14 @@ from fastapi import (
 )
 from sqlalchemy import select
 
-from app.api.deps import SesionBD, obtener_edificio, obtener_piso, obtener_tramo
+from app.api.deps import (
+    SesionBD,
+    edificio_permitido,
+    exigir_todos_los_edificios,
+    obtener_edificio,
+    obtener_piso,
+    obtener_tramo,
+)
 from app.core.config import DIR_PROYECTO
 from app.models import Edificio, OrigenCambio, Piso, Tramo
 from app.schemas.organizacion import (
@@ -45,11 +52,15 @@ def listar_edificios(sesion: SesionBD, solo_activos: bool = True):
     consulta = select(Edificio).order_by(Edificio.codigo)
     if solo_activos:
         consulta = consulta.where(Edificio.activo.is_(True))
+    permitido = edificio_permitido(sesion)
+    if permitido:
+        consulta = consulta.where(Edificio.codigo == permitido)
     return sesion.scalars(consulta).all()
 
 
 @router.post("", response_model=EdificioLeer, status_code=status.HTTP_201_CREATED)
 def crear_edificio(datos: EdificioCrear, sesion: SesionBD):
+    exigir_todos_los_edificios(sesion)
     codigo = datos.codigo.upper()
     if sesion.scalar(select(Edificio).where(Edificio.codigo == codigo)):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Ya existe el edificio '{codigo}'")

@@ -1,4 +1,4 @@
-"""Acceso al sistema: sesiones del administrador e intentos de ingreso.
+"""Acceso al sistema: sesiones iniciadas e intentos de ingreso.
 
 Viven en la base, no en memoria, para que valgan igual con varios procesos y
 para que reiniciar la API no borre un bloqueo. Los momentos se guardan como
@@ -22,6 +22,9 @@ class SesionAcceso(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     #: SHA-256 del token de la cookie: quien lea la base no puede usar la sesión.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    #: De quién es. Sus permisos se leen de la configuración en cada petición: si
+    #: el usuario se quita, la sesión deja de valer.
+    usuario: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     #: Desde dónde se inició, para auditar.
     cliente: Mapped[str] = mapped_column(String(45), nullable=False)
     creada_en: Mapped[float] = mapped_column(Float, nullable=False)

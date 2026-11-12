@@ -51,18 +51,24 @@ def validar_clave(clave: str, usuario: str) -> None:
         raise ClaveRechazada("No puede contener el nombre de usuario.")
 
 
-def guardar_hash(valor: str, archivo: Path = ARCHIVO_ENV) -> None:
+def guardar_variable(variable: str, valor: str, archivo: Path = ARCHIVO_ENV) -> None:
     """Reemplaza la variable en ``archivo`` sin tocar las demás líneas."""
+    if "'" in valor or "\n" in valor:
+        raise ValueError(f"{variable} no puede llevar comillas simples ni saltos de línea")
     lineas = archivo.read_text(encoding="utf-8").splitlines() if archivo.exists() else []
-    lineas = [linea for linea in lineas if not linea.startswith(f"{VARIABLE}=")]
-    # Entre comillas simples: el hash lleva "$", que docker compose interpretaría.
-    lineas.append(f"{VARIABLE}='{valor}'")
+    lineas = [linea for linea in lineas if not linea.startswith(f"{variable}=")]
+    # Entre comillas simples: un hash lleva "$", que docker compose interpretaría.
+    lineas.append(f"{variable}='{valor}'")
 
     # mkstemp lo crea legible solo para su dueño; os.replace no deja a medias.
     descriptor, temporal = tempfile.mkstemp(dir=archivo.parent, prefix=".env-")
     with os.fdopen(descriptor, "w", encoding="utf-8") as salida:
         salida.write("\n".join(lineas) + "\n")
     os.replace(temporal, archivo)
+
+
+def guardar_hash(valor: str, archivo: Path = ARCHIVO_ENV) -> None:
+    guardar_variable(VARIABLE, valor, archivo)
 
 
 def _pedir_clave() -> str:

@@ -1,4 +1,4 @@
-"""Ingreso y salida del administrador (ver ``app.servicios.autenticacion``)."""
+"""Ingreso y salida (ver ``app.servicios.autenticacion``)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,11 @@ from pydantic import BaseModel, Field
 from app.api.deps import SesionBD
 from app.core.config import configuracion
 from app.servicios.autenticacion import (
+    Acceso,
     AdministradorSinConfigurar,
     CredencialesInvalidas,
     IngresoBloqueado,
+    acceso_de,
     autenticar,
     cerrar_sesion,
 )
@@ -28,6 +30,12 @@ class Credenciales(BaseModel):
 
 class SesionActiva(BaseModel):
     usuario: str
+    #: El único edificio al que tiene acceso; nulo, todos.
+    edificio: str | None = None
+
+
+def _sesion_de(acceso: Acceso) -> SesionActiva:
+    return SesionActiva(usuario=acceso.usuario, edificio=acceso.edificio)
 
 
 def _plural(cantidad: int, palabra: str) -> str:
@@ -68,13 +76,13 @@ def ingresar(datos: Credenciales, request: Request, response: Response, bd: Sesi
         samesite="strict",
         secure=es_https(request),
     )
-    return SesionActiva(usuario=configuracion.admin_usuario)
+    return _sesion_de(acceso_de(datos.usuario) or Acceso(datos.usuario))
 
 
 @router.get("/sesion", response_model=SesionActiva)
-def sesion_actual():
+def sesion_actual(request: Request):
     """Para llegar aquí, ``proteger`` ya validó la cookie."""
-    return SesionActiva(usuario=configuracion.admin_usuario)
+    return _sesion_de(request.state.acceso)
 
 
 @router.post("/salir", status_code=status.HTTP_204_NO_CONTENT)

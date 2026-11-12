@@ -30,7 +30,7 @@ Construcción desde cero (no extensión de NetBox):
 | Backend | FastAPI + SQLAlchemy 2.0 + Pydantic v2 | Validación declarativa de fichas y OpenAPI generado automáticamente |
 | Base de datos | SQLite (desarrollo) → PostgreSQL | Modelo portable: `JSONB` en PostgreSQL, `JSON` en SQLite |
 | Migraciones | Alembic | El mismo esquema versionado en SQLite y PostgreSQL; `render_as_batch` para los `ALTER TABLE` de SQLite |
-| Acceso | Argon2id, sesiones en la base, CSP, HTTPS | Un único administrador y nada accesible sin él; ver [docs/seguridad.md](docs/seguridad.md) |
+| Acceso | Argon2id, sesiones en la base, CSP, HTTPS | Administrador y otros usuarios, que pueden limitarse a un edificio; nada accesible sin ingresar. Ver [docs/seguridad.md](docs/seguridad.md) |
 | Integraciones | Prometheus, Alertmanager, Grafana, Zabbix | Métricas, descubrimiento de objetivos, webhooks de estado y conector de hosts; ver [docs/integraciones.md](docs/integraciones.md) |
 | Lectura de láminas | RapidOCR (opcional, `requirements-ocr.txt`) | Lee los números de sala y los rótulos de racks de las láminas de CAD, cuyo texto viene convertido en trazos. Solo lo necesita quien prepara las láminas |
 
@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           360 pruebas (pytest)
+│   └── tests/           478 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -123,10 +123,16 @@ certificado propio o, si no hay, uno autofirmado que genera en `backend/certs/`.
 
 ### Acceso
 
-El sistema tiene un único usuario, el administrador `admin-netdoc`, y no se puede
-usar sin ingresar con él: la API rechaza toda petición sin sesión, incluidos los
-planos, las fotografías y la documentación interactiva. Detalle en
+No se puede usar sin ingresar: la API rechaza toda petición sin sesión, incluidos los
+planos, las fotografías y la documentación interactiva. Además del administrador,
+`admin-netdoc`, puede haber [otros usuarios](docs/seguridad.md#otros-usuarios), con la
+misma protección; cada uno puede quedar limitado a un edificio. Detalle en
 [docs/seguridad.md](docs/seguridad.md).
+
+```bash
+cd backend
+.venv/bin/python -m app.scripts.usuarios agregar NOMBRE [--edificio CADI] [--generar]
+```
 
 - **Contraseña.** No está en el repositorio, ni siquiera su hash: vive en `.env`,
   que no se versiona. `iniciar.sh` la pide la primera vez. Para cambiarla, lo que
@@ -486,7 +492,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 360 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 478 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

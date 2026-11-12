@@ -9,11 +9,21 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> backend/
 DIR_BACKEND = Path(__file__).resolve().parents[2]
 DIR_PROYECTO = DIR_BACKEND.parent
+
+
+class UsuarioAdicional(BaseModel):
+    """Otro usuario, además del administrador (``app.scripts.usuarios``)."""
+
+    #: Hash Argon2id de su contraseña.
+    clave_hash: str
+    #: Código del único edificio que puede ver y modificar; nulo, todos.
+    edificio: str | None = None
 
 
 class Configuracion(BaseSettings):
@@ -48,12 +58,15 @@ class Configuracion(BaseSettings):
     teselas: bool = True
 
     # --- Acceso (app.servicios.autenticacion) ------------------------------
-    #: Único usuario del sistema.
+    #: Administrador principal.
     admin_usuario: str = "admin-netdoc"
     #: Hash Argon2id de su contraseña. No tiene valor por omisión: vive en .env,
     #: fuera del repositorio (python -m app.scripts.definir_clave), y sin él
     #: nadie puede ingresar.
     admin_clave_hash: str = ""
+    #: Los demás usuarios, por nombre. También viven en .env, como JSON: los
+    #: escribe python -m app.scripts.usuarios.
+    usuarios: dict[str, UsuarioAdicional] = {}
     #: Intentos fallidos que admite un mismo equipo antes de bloquearlo…
     ingreso_intentos: int = 3
     #: …y entre todos los equipos, contra un ataque repartido entre muchos.

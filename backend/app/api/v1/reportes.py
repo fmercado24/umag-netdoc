@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
-from app.api.deps import SesionBD, obtener_edificio
+from app.api.deps import SesionBD, edificio_de_consulta, obtener_edificio
 from app.models import ETIQUETAS, Elemento, EstadoOperativo, Piso, TipoElemento
 from app.schemas.reportes import (
     Conteo,
@@ -160,6 +160,7 @@ def fuera_de_servicio(sesion: SesionBD, edificio: str | None = None):
         Elemento.activo.is_(True),
         Elemento.estado_operativo.in_([EstadoOperativo.INACTIVO, EstadoOperativo.EN_FALLA]),
     ]
+    edificio = edificio_de_consulta(sesion, edificio)
     if edificio:
         filtros.append(Elemento.edificio_id == obtener_edificio(sesion, edificio).id)
 

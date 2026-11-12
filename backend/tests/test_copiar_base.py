@@ -58,7 +58,7 @@ def bases(tmp_path):
             )
         )
         # Son de cada instalación: no se copian.
-        s.add(SesionAcceso(token_hash="x" * 64, cliente="10.0.0.1", creada_en=1, ultimo_uso=1, vence_en=2))
+        s.add(SesionAcceso(token_hash="x" * 64, usuario="admin-netdoc", cliente="10.0.0.1", creada_en=1, ultimo_uso=1, vence_en=2))
         s.add(IntentoIngreso(cliente="10.0.0.1", ocurrido_en=1))
         s.commit()
     motor.dispose()

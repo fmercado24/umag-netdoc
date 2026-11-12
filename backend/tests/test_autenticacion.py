@@ -85,7 +85,7 @@ def test_ingreso_correcto_abre_la_aplicacion(anonimo):
 
     respuesta = anonimo.post(INGRESO, json=BUENAS)
     assert respuesta.status_code == 200
-    assert respuesta.json() == {"usuario": "admin-netdoc"}
+    assert respuesta.json() == {"usuario": "admin-netdoc", "edificio": None}
 
     cookie = respuesta.headers["set-cookie"].lower()
     assert cookie.startswith(f"{COOKIE_HTTP}=")
@@ -94,7 +94,7 @@ def test_ingreso_correcto_abre_la_aplicacion(anonimo):
     assert "path=/" in cookie
     assert "secure" not in cookie  # en este equipo se atiende por http
 
-    assert anonimo.get(f"{API}/auth/sesion").json() == {"usuario": "admin-netdoc"}
+    assert anonimo.get(f"{API}/auth/sesion").json() == {"usuario": "admin-netdoc", "edificio": None}
     assert anonimo.get(f"{API}/edificios").status_code == 200
 
 

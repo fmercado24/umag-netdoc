@@ -21,6 +21,8 @@ os.environ["NETDOC_DATABASE_URL"] = os.environ.get("NETDOC_PRUEBAS_DATABASE_URL"
 os.environ["NETDOC_DIR_MEDIA"] = str(Path(_DIR_TEMPORAL) / "media")
 os.environ["NETDOC_DIR_VISOR"] = str(Path(_DIR_TEMPORAL) / "visor")
 os.environ["NETDOC_MONITOREO_TOKEN"] = "token-de-prueba"
+# Los usuarios reales viven en .env, que la configuración también lee.
+os.environ["NETDOC_USUARIOS"] = "{}"
 # Dibujar teselas toma un proceso aparte por plano: solo las pruebas de
 # teselas lo activan.
 os.environ["NETDOC_TESELAS"] = "0"

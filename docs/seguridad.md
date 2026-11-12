@@ -9,8 +9,8 @@ información que ayudaría a atacarla, y por eso no se muestra a nadie sin ingre
 
 ### Contraseña del administrador
 
-Hay un único usuario, `admin-netdoc`. Su contraseña no está en el repositorio, ni
-siquiera como hash: el hash vive en `.env`, en la raíz del proyecto, que git ignora
+El administrador principal es `admin-netdoc`. Su contraseña no está en el repositorio,
+ni siquiera como hash: el hash vive en `.env`, en la raíz del proyecto, que git ignora
 y que queda legible solo para el usuario que corre NetDoc. `iniciar.sh` la pide la
 primera vez. Sin ella, nadie puede ingresar. **Al instalar NetDoc en otro equipo
 hay que volver a definirla:** el `.env` no viaja con el repositorio.
@@ -25,6 +25,38 @@ cd backend
 
 Pide al menos 8 caracteres y avisa si son menos de 15, que es lo recomendado. Con
 un solo factor de autenticación, el largo es lo que más protege.
+
+### Otros usuarios
+
+Además del administrador puede haber otros usuarios, para que cada persona ingrese con
+su propia cuenta. Tienen la misma protección: solo se guarda el hash Argon2id de su
+contraseña, también en `.env`, con el mismo límite de intentos, las mismas sesiones y
+las mismas reglas para la contraseña.
+
+```bash
+cd backend
+.venv/bin/python -m app.scripts.usuarios                               # los lista
+.venv/bin/python -m app.scripts.usuarios agregar jperez                # pide su contraseña
+.venv/bin/python -m app.scripts.usuarios agregar jperez --generar      # o la elige y la muestra una vez
+.venv/bin/python -m app.scripts.usuarios agregar ing-red --edificio ING
+.venv/bin/python -m app.scripts.usuarios clave jperez                  # la cambia y cierra sus sesiones
+.venv/bin/python -m app.scripts.usuarios quitar jperez
+# y reiniciar NetDoc para que tome el cambio
+```
+
+En un servidor es `sudo netdoc usuario …`, con las mismas órdenes, y ya lo reinicia.
+Como el `.env`, los usuarios son de cada instalación: no viajan con el repositorio ni
+con los datos, así que en un servidor nuevo hay que volver a crearlos.
+
+**Sin `--edificio`** el usuario puede lo mismo que el administrador en el visor. Lo único
+que no puede es cambiar contraseñas ni usuarios, que se hace desde el servidor.
+
+**Con `--edificio`** solo ve y modifica ese edificio, y ahí trabaja como un administrador:
+agrega, edita, traslada y elimina elementos, y carga planos. No ve los demás edificios
+(ni en los listados, ni sus planos o fotografías, ni pidiéndolos por su código), no crea
+edificios, no cambia el catálogo de tipos ni las VLAN de campus, y no accede a `/docs`, a
+las métricas ni a lo que leen otros sistemas, que es de todos los edificios. El límite lo
+aplica la API, no la pantalla.
 
 ### Si se bloquea el ingreso
 
@@ -120,11 +152,14 @@ Después, correr las pruebas y `./iniciar.sh`, que instala lo que cambió.
 No es una certificación ni reemplaza una auditoría: es lo que está implementado,
 siguiendo las recomendaciones vigentes de OWASP (ASVS, Top 10 y las guías de
 autenticación, contraseñas y sesiones) y de NIST SP 800-63B. Las pruebas están en
-`backend/tests/test_autenticacion.py`, `test_proteccion.py` y `test_definir_clave.py`.
+`backend/tests/test_autenticacion.py`, `test_proteccion.py`, `test_definir_clave.py` y
+`test_usuarios.py`.
 
 | Riesgo | Control | Dónde |
 |---|---|---|
 | Uso sin autenticarse | Todo se rechaza salvo lo exceptuado explícitamente: una ruta nueva nace protegida. Sin sesión solo responden la pantalla de ingreso con sus recursos, `/salud` y los webhooks | `servicios/proteccion.py` |
+| Usuario limitado a un edificio que pide lo de otro | La sesión dice de quién es y sus permisos se leen en cada petición. Las funciones por las que pasan las rutas para buscar un edificio o un elemento rechazan lo ajeno, los listados se filtran, y sus planos y fotos se reconocen por el nombre del archivo. Para ese usuario, una ruta nueva nace cerrada; una prueba recorre todas las rutas y falla si aparece una sin declarar | `servicios/proteccion.py`, `api/deps.py` |
+| Adivinar qué usuarios existen | El mensaje no distingue usuario de contraseña, y la contraseña se verifica aunque el usuario no exista, para tardar lo mismo | `servicios/autenticacion.py` |
 | Secreto en el repositorio | El hash vive en `.env`; el código no trae valor por omisión, y sin él nadie ingresa. Las claves de Docker tampoco tienen valor por omisión | `core/config.py`, `scripts/definir_clave.py`, `docker-compose.yml` |
 | Robo de la base o de `.env` | Contraseña con Argon2id (64 MiB). Las sesiones se guardan como SHA-256 de un token aleatorio de 256 bits | `servicios/autenticacion.py` |
 | Fuerza bruta | 3 intentos por equipo y 30 entre todos, en una ventana de 15 minutos. Se cuentan en la base y antes de verificar la clave, de modo que ni un reinicio ni peticiones simultáneas dan más intentos. Una red IPv6 /64 cuenta como un solo equipo | `servicios/autenticacion.py` |
@@ -146,10 +181,11 @@ autenticación, contraseñas y sesiones) y de NIST SP 800-63B. Las pruebas está
 
 Son decisiones abiertas, en orden de lo que más reduciría el riesgo:
 
-1. **Una contraseña es un solo factor, y la cuenta es compartida.** No hay segundo factor
-   (TOTP o WebAuthn), que es lo que hoy se espera de una cuenta de administrador. Y como
-   todos usan la misma cuenta, el registro dice desde qué equipo se hizo algo, pero no
-   quién. Integrar el directorio de la UMAG (LDAP u OIDC) resolvería ambas cosas.
+1. **Una contraseña es un solo factor.** No hay segundo factor (TOTP o WebAuthn), que es
+   lo que hoy se espera de una cuenta de administrador. Con una cuenta por persona, el
+   registro del servidor dice quién ingresó y desde dónde, pero el historial de cada
+   elemento sigue anotando lo que se escriba en «Registrado por», no la cuenta. Integrar
+   el directorio de la UMAG (LDAP u OIDC) resolvería ambas cosas.
 2. **El largo de la contraseña.** El límite de intentos protege de quien prueba por la
    pantalla de ingreso, no de quien obtenga `.env`, que podría probar sin límite contra el
    hash. Una contraseña corta o con un patrón predecible se puede adivinar así, a pesar de
@@ -160,9 +196,13 @@ Son decisiones abiertas, en orden de lo que más reduciría el riesgo:
 4. **El certificado autofirmado solo cifra.** El navegador no puede saber si habla con el
    servidor verdadero, y acostumbrarse a aceptar su advertencia es justo lo que aprovecharía
    un atacante en la red. En producción, use un certificado de la institución.
-5. **Es un bloqueo por equipo.** Quien comparta IP con el atacante (detrás de un NAT, o de
+5. **Los usuarios se administran desde el servidor.** No hay una pantalla para crearlos
+   ni para que cada uno cambie su contraseña: lo hace quien tenga acceso al servidor, y
+   el cambio pide reiniciar NetDoc. El límite por edificio es el único permiso que existe:
+   no hay usuarios de solo lectura.
+6. **Es un bloqueo por equipo.** Quien comparta IP con el atacante (detrás de un NAT, o de
    un proxy mal indicado) también queda bloqueado. Y quien acumule 30 fallos desde varias
    direcciones puede dejar el ingreso bloqueado para todos mientras insista, aunque las
    sesiones abiertas siguen funcionando.
-6. **Los planos ya abiertos.** Lo que el navegador ya mostró puede quedar en la memoria o el
+7. **Los planos ya abiertos.** Lo que el navegador ya mostró puede quedar en la memoria o el
    disco del equipo. Conviene no usar NetDoc en equipos compartidos.

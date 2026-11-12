@@ -13,6 +13,12 @@ Uso: sudo netdoc <comando>
   registro                Lo que informa el servicio, en vivo (Ctrl+C para salir)
   reiniciar               Reinicia el servicio
   clave                   Cambia la contraseña del administrador y cierra las sesiones
+  usuario                 Lista los demás usuarios
+  usuario agregar NOMBRE [--edificio CODIGO] [--generar]
+                          Crea otro usuario; con --edificio, solo para ese edificio
+  usuario clave NOMBRE [--generar]
+                          Cambia su contraseña y cierra sus sesiones
+  usuario quitar NOMBRE   Lo elimina y cierra sus sesiones
   desbloquear             Levanta el bloqueo por intentos de ingreso fallidos
   importar                Carga lo nuevo de data/: edificios, láminas y fotografías
   respaldar [CARPETA]     Respalda la base y los archivos (guarda los últimos 14)
@@ -146,6 +152,18 @@ case "$COMANDO" in
     systemctl restart netdoc
     esperar_servicio
     echo "Servicio reiniciado con la contraseña nueva."
+    ;;
+  usuario)
+    shift
+    "$PY" -m app.scripts.usuarios "$@"
+    # Los usuarios se leen al arrancar.
+    case "${1:-}" in
+      agregar | clave | quitar)
+        systemctl restart netdoc
+        esperar_servicio
+        echo "Servicio reiniciado."
+        ;;
+    esac
     ;;
   desbloquear)
     "$PY" -m app.scripts.definir_clave --desbloquear

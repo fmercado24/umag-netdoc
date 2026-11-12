@@ -56,7 +56,7 @@ flowchart LR
 | Respaldo | `sudo netdoc respaldar` | `sudo netdoc respaldar`, o las herramientas que ya use la DSI |
 | Conviene si | Un solo servidor y pocas personas editando a la vez, como en NetDoc | La DSI ya administra PostgreSQL, o la base debe estar en otro servidor o crecer con más procesos |
 
-Para NetDoc, con un único administrador, **SQLite alcanza**, y es lo más simple de operar.
+Para NetDoc, con unos pocos usuarios, **SQLite alcanza**, y es lo más simple de operar.
 La elección no es definitiva (sección 10.2).
 
 ## 4. Instalar
@@ -182,6 +182,9 @@ propio servidor: no hay que abrirlos.
 | `sudo netdoc registro` | Lo que informa, en vivo: peticiones, ingresos, intentos fallidos, errores |
 | `sudo netdoc reiniciar` | Reinicia el servicio |
 | `sudo netdoc clave` | Cambia la contraseña, cierra las sesiones y reinicia |
+| `sudo netdoc usuario` | Lista los demás usuarios |
+| `sudo netdoc usuario agregar NOMBRE [--edificio CADI] [--generar]` | Crea otro usuario, si se quiere limitado a un edificio, y reinicia ([detalle](seguridad.md#otros-usuarios)) |
+| `sudo netdoc usuario clave NOMBRE`, `… quitar NOMBRE` | Cambia su contraseña o lo elimina, cierra sus sesiones y reinicia |
 | `sudo netdoc desbloquear` | Levanta el bloqueo por intentos de ingreso fallidos |
 | `sudo netdoc importar` | Carga lo nuevo de `/opt/netdoc/data/` (ver sección 8) |
 | `sudo netdoc respaldar` | Respalda la base y los archivos |
@@ -350,7 +353,9 @@ reinicio del servidor, respaldar y restaurar, traer datos de otro equipo, cambia
 ambos sentidos, certificado propio con dominio y desinstalar. Además, las pruebas automáticas
 pasaron contra PostgreSQL 16 en esas máquinas. Trasladar, eliminar y restaurar se agregaron
 después: todas las pruebas pasan contra PostgreSQL 18 y se recorrieron con un navegador sobre
-SQLite, pero no en estas máquinas virtuales.
+SQLite, pero no en estas máquinas virtuales. Lo mismo vale para `sudo netdoc usuario`: el
+programa que administra los usuarios tiene pruebas automáticas, pero el comando no se corrió
+en un servidor.
 
 **No se probó:** el perfil de monitoreo con contenedores reales (sección 11): se reprodujeron
 sus peticiones contra el puerto 8000, con su token y certificado, pero no con Docker,

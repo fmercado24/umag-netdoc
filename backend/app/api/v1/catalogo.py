@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import SesionBD, obtener_tipo
+from app.api.deps import SesionBD, exigir_todos_los_edificios, obtener_tipo
 from app.models import (
     COLORES_ESTADO,
     ETIQUETAS,
@@ -52,6 +52,8 @@ def obtener_ficha(codigo: str, sesion: SesionBD):
 @router.post("/tipos", response_model=TipoElementoDetalle, status_code=status.HTTP_201_CREATED)
 def crear_tipo(datos: TipoElementoCrear, sesion: SesionBD):
     """Da de alta un tipo nuevo con su ficha, sin migrar el esquema."""
+    # El catálogo es de todos los edificios.
+    exigir_todos_los_edificios(sesion)
     existente = sesion.scalar(select(TipoElemento).where(TipoElemento.codigo == datos.codigo))
     if existente is not None:
         raise HTTPException(

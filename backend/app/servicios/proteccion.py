@@ -9,6 +9,7 @@ comprobación de origen, enviar escrituras.
 from __future__ import annotations
 
 import ipaddress
+import posixpath
 from urllib.parse import urlsplit
 
 from starlette.concurrency import run_in_threadpool
@@ -16,7 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import configuracion
-from app.servicios.autenticacion import sesion_vigente, token_monitoreo_valido
+from app.servicios.autenticacion import Acceso, sesion_vigente, token_monitoreo_valido
 
 #: El prefijo ``__Host-`` obliga al navegador a exigir HTTPS, y evita que otro
 #: subdominio pueda fijarla.
@@ -40,6 +41,19 @@ PREFIJOS_PUBLICOS = ("/assets/",)
 #: Lo que leen otros sistemas (Prometheus, NetBox, GLPI). No pueden iniciar
 #: sesión, así que les basta el token de monitoreo.
 PREFIJOS_CON_TOKEN = ("/metrics", "/api/v1/integraciones/")
+
+#: Lo que puede pedir un usuario limitado a un edificio: las rutas que filtran por
+#: él (``app.api.deps``). El resto muestra datos de todos los edificios, así que
+#: una ruta nueva nace cerrada para ese usuario hasta que se agregue aquí.
+PREFIJOS_CON_ALCANCE = (
+    "/api/v1/auth/",
+    "/api/v1/catalogo/",
+    "/api/v1/edificios",
+    "/api/v1/elementos",
+    "/api/v1/enlaces",
+    "/api/v1/reportes/",
+    "/api/v1/vlans",
+)
 
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -117,6 +131,20 @@ def _rechazo(codigo: int, detalle: str) -> Response:
     return JSONResponse({"detail": detalle}, status_code=codigo)
 
 
+def _dentro_de_su_alcance(ruta: str, edificio: str) -> bool:
+    """Si un usuario limitado a ``edificio`` puede pedir esa ruta."""
+    if ruta.startswith("/media/"):
+        # Planos, teselas y fotografías se llaman como su edificio: CADI-P01-T1-v1.svg.
+        # Una ruta con «..» nombraría un archivo y entregaría otro.
+        partes = ruta.split("/")
+        return (
+            posixpath.normpath(ruta) == ruta
+            and len(partes) >= 4
+            and partes[3].upper().startswith(f"{edificio.upper()}-")
+        )
+    return ruta.startswith(PREFIJOS_CON_ALCANCE)
+
+
 def _revisar_cuerpo(request: Request, con_sesion: bool) -> Response | None:
     """El cuerpo se rechaza antes de leerlo: sin esto, cualquiera podría agotar
     la memoria con un envío enorme a la pantalla de ingreso."""
@@ -134,26 +162,40 @@ def _revisar_cuerpo(request: Request, con_sesion: bool) -> Response | None:
     return None
 
 
+def _ruta(request: Request) -> str:
+    """La ruta tal como la verán las rutas y el servidor de archivos.
+
+    ``request.url.path`` la corta en un «?» o «#» que venga codificado (%3F, %23):
+    se revisaría una ruta y se atendería otra.
+    """
+    return request.scope["path"]
+
+
 async def _filtrar(request: Request, call_next) -> Response:
-    ruta = request.url.path
+    ruta = _ruta(request)
     if not es_https(request) and ruta != "/salud" and not _es_local(request):
         return _rechazo(403, "Desde otros equipos, NetDoc solo atiende por HTTPS")
     if _viene_de_otro_sitio(request):
         return _rechazo(403, "Petición de otro sitio rechazada")
 
-    con_sesion = False
+    acceso: Acceso | None = None
     if ruta not in RUTAS_PUBLICAS and not ruta.startswith(PREFIJOS_PUBLICOS):
         token = request.cookies.get(nombre_cookie(request))
-        con_sesion = bool(token) and await run_in_threadpool(sesion_vigente, token)
-        if not con_sesion and not (
+        if token:
+            acceso = await run_in_threadpool(sesion_vigente, token)
+        if acceso is None and not (
             ruta.startswith(PREFIJOS_CON_TOKEN)
             and token_monitoreo_valido(
                 request.headers.get("X-NetDoc-Token"), request.headers.get("Authorization")
             )
         ):
             return _rechazo(401, "Debe iniciar sesión")
+        if acceso and acceso.edificio and not _dentro_de_su_alcance(ruta, acceso.edificio):
+            return _rechazo(403, f"Su usuario solo tiene acceso al edificio {acceso.edificio}")
+    # Para las rutas: quién pide y hasta dónde llega (app.api.deps).
+    request.state.acceso = acceso
 
-    return _revisar_cuerpo(request, con_sesion) or await call_next(request)
+    return _revisar_cuerpo(request, acceso is not None) or await call_next(request)
 
 
 def _politicas(ruta: str) -> tuple[str, str]:
@@ -174,7 +216,7 @@ def _politicas(ruta: str) -> tuple[str, str]:
 
 async def proteger(request: Request, call_next) -> Response:
     respuesta = await _filtrar(request, call_next)
-    csp, cache = _politicas(request.url.path)
+    csp, cache = _politicas(_ruta(request))
     respuesta.headers["Content-Security-Policy"] = csp
     respuesta.headers["Cache-Control"] = cache
     respuesta.headers.update(CABECERAS)

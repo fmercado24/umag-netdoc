@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session, aliased, object_session
 
 from app.api.deps import (
     SesionBD,
+    edificio_de_consulta,
+    edificio_permitido,
     obtener_edificio,
     obtener_elemento,
     obtener_piso,
@@ -353,7 +355,7 @@ def listar_elementos(
     desplazamiento: int = Query(default=0, ge=0),
 ):
     filtros = dict(
-        edificio=edificio,
+        edificio=edificio_de_consulta(sesion, edificio),
         piso=piso,
         tramo=tramo,
         tipo=tipo,
@@ -1278,7 +1280,12 @@ def cargar_fotografia(
 def asignar_vlan(id_o_codigo: str, datos: VlanAsignar, sesion: SesionBD):
     elemento = obtener_elemento(sesion, id_o_codigo)
     vlan = sesion.get(Vlan, datos.vlan_id)
-    if vlan is None:
+    # La de otro edificio se responde igual que la que no existe; las de campus sirven.
+    permitido = edificio_permitido(sesion)
+    ajena = vlan is not None and permitido and vlan.edificio_id is not None and (
+        vlan.edificio_id != elemento.edificio_id
+    )
+    if vlan is None or ajena:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No existe la VLAN {datos.vlan_id}")
 
     ya_asignada = any(ev.vlan_id == vlan.id and ev.rol == datos.rol for ev in elemento.vlans)

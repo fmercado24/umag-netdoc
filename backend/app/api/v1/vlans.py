@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
-from app.api.deps import SesionBD, obtener_edificio, obtener_elemento
-from app.models import Enlace, Vlan
+from app.api.deps import (
+    SesionBD,
+    edificio_permitido,
+    exigir_todos_los_edificios,
+    obtener_edificio,
+    obtener_elemento,
+)
+from app.models import Edificio, Elemento, Enlace, Vlan
 from app.schemas.logico import EnlaceCrear, EnlaceLeer, VlanCrear, VlanLeer
 
 router = APIRouter(tags=["elementos lógicos"])
@@ -15,9 +21,15 @@ router = APIRouter(tags=["elementos lógicos"])
 @router.get("/vlans", response_model=list[VlanLeer])
 def listar_vlans(sesion: SesionBD, edificio: str | None = None):
     consulta = select(Vlan).order_by(Vlan.numero)
+    permitido = edificio_permitido(sesion)
     if edificio:
         ed = obtener_edificio(sesion, edificio)
         consulta = consulta.where(Vlan.edificio_id == ed.id)
+    elif permitido:
+        # Las de su edificio y las de campus, que también llegan a él.
+        consulta = consulta.outerjoin(Edificio, Vlan.edificio_id == Edificio.id).where(
+            or_(Vlan.edificio_id.is_(None), Edificio.codigo == permitido)
+        )
     return sesion.scalars(consulta).all()
 
 
@@ -26,6 +38,8 @@ def crear_vlan(datos: VlanCrear, sesion: SesionBD):
     edificio_id = None
     if datos.edificio:
         edificio_id = obtener_edificio(sesion, datos.edificio).id
+    else:
+        exigir_todos_los_edificios(sesion)
 
     # El número se repite entre edificios, no dentro de uno (ni entre las de campus).
     mismo_ambito = Vlan.edificio_id == edificio_id if edificio_id else Vlan.edificio_id.is_(None)
@@ -42,10 +56,17 @@ def crear_vlan(datos: VlanCrear, sesion: SesionBD):
 @router.get("/enlaces", response_model=list[EnlaceLeer])
 def listar_enlaces(sesion: SesionBD, elemento: str | None = None):
     consulta = select(Enlace)
+    permitido = edificio_permitido(sesion)
     if elemento:
         objetivo = obtener_elemento(sesion, elemento)
         consulta = consulta.where(
             (Enlace.origen_id == objetivo.id) | (Enlace.destino_id == objetivo.id)
+        )
+    elif permitido:
+        consulta = (
+            consulta.join(Elemento, Enlace.origen_id == Elemento.id)
+            .join(Edificio, Elemento.edificio_id == Edificio.id)
+            .where(Edificio.codigo == permitido)
         )
     return sesion.scalars(consulta).all()
 

@@ -316,10 +316,15 @@ Table identificador_externo [headercolor: #e8710a] {
 Table sesion_acceso [headercolor: #dc2626] {
   id integer [pk, increment]
   token_hash varchar(64) [not null, unique]
+  usuario varchar(100) [not null]
   cliente varchar(45) [not null]
   creada_en float [not null]
   ultimo_uso float [not null]
   vence_en float [not null]
+
+  indexes {
+    usuario [name: 'ix_sesion_acceso_usuario']
+  }
 
   Note: 'Una sesión iniciada. Cerrarla es borrar su fila: deja de valer de inmediato.'
 }

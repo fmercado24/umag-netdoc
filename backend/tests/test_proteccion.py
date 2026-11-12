@@ -280,3 +280,17 @@ def test_una_carga_con_sesion_tiene_su_propio_limite(cliente, monkeypatch):
     respuesta = cliente.post(f"{API}/edificios/CADI/pisos/P01/plano", files=grande, data=datos)
     assert respuesta.status_code == 413
     assert "1 MB" in respuesta.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "ruta",
+    [
+        "/salud%3F/../api/v1/edificios",
+        "/assets/x%3F/../../media/planos/prueba-proteccion.svg",
+        "/%23/../media/planos/prueba-proteccion.svg",
+    ],
+)
+def test_un_signo_codificado_no_hace_pasar_por_publica_otra_ruta(anonimo, archivo_en_media, ruta):
+    respuesta = anonimo.get(ruta)
+    assert respuesta.status_code in (401, 404)
+    assert "<svg" not in respuesta.text
