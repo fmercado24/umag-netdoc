@@ -173,6 +173,11 @@ interface Props {
   onSeleccionar: (elemento: ElementoMapa) => void
   onPosicionar: (x: number, y: number) => void
   onCancelarPosicion: () => void
+  /** El edificio no tiene planos ni elementos: sus planos se cargan desde el visor. */
+  edificioVacio: boolean
+  /** Abre la carga; sin ella (ya abierta), solo se muestra el aviso. */
+  onCargarPlanos?: () => void
+  edificio: string
 }
 
 export function VisorPlano({
@@ -185,7 +190,30 @@ export function VisorPlano({
   onSeleccionar,
   onPosicionar,
   onCancelarPosicion,
+  edificioVacio,
+  onCargarPlanos,
+  edificio,
 }: Props) {
+  if (!plano && edificioVacio) {
+    return (
+      <div className="visor visor--vacio">
+        <div className="mensaje-vacio">
+          <h2>{edificio} todavía no tiene planos</h2>
+          <p>
+            Para empezar a documentarlo, carga sus planos: uno por piso o por tramo, en SVG y con
+            el nombre que indica su piso y tramo. Con ellos se crean los pisos y tramos del
+            edificio.
+          </p>
+          {onCargarPlanos && (
+            <button className="boton" onClick={onCargarPlanos}>
+              Cargar planos
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (!plano && hayLaminasPorTramo) {
     return (
       <div className="visor visor--vacio">
@@ -208,10 +236,9 @@ export function VisorPlano({
         <div className="mensaje-vacio">
           <h2>Este piso todavía no tiene plano cargado</h2>
           <p>
-            Súbelo con <code>POST /api/v1/edificios/&lt;CÓDIGO&gt;/pisos/&lt;PISO&gt;/plano</code>{' '}
-            indicando el archivo y sus dimensiones, más el <code>tramo</code> si la lámina cubre
-            solo uno. Esas dimensiones fijan el sistema de coordenadas en que se guardará la
-            posición de cada elemento.
+            Desde el visor solo se cargan los planos de un edificio vacío. En uno que ya tiene
+            planos o elementos se cargan desde la terminal, con{' '}
+            <code>app.scripts.cargar_planos</code> (guía de edificio nuevo, sección 4).
           </p>
           <p className="mensaje-vacio__nota">
             Mientras tanto, los elementos del piso siguen consultables en el listado lateral.

@@ -1,6 +1,8 @@
 /** Cliente HTTP del backend NetDoc. */
 
 import type {
+  CargaConfirmada,
+  CargaDePlanos,
   CodigoPropuesto,
   DefinicionAtributo,
   Edificio,
@@ -8,6 +10,7 @@ import type {
   ElementoDetalle,
   Enumeraciones,
   HistorialEntrada,
+  LaminaPendiente,
   Piso,
   PrevioTraslado,
   Recinto,
@@ -59,9 +62,12 @@ async function conectar(url: string, opciones: RequestInit): Promise<Response> {
 }
 
 async function pedir<T>(ruta: string, opciones: RequestInit = {}): Promise<T> {
+  // Con un archivo, el navegador arma el Content-Type (con su separador).
+  const tipo: Record<string, string> =
+    opciones.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }
   const respuesta = await conectar(`${BASE}${ruta}`, {
-    headers: { 'Content-Type': 'application/json', ...(opciones.headers ?? {}) },
     ...opciones,
+    headers: { ...tipo, ...(opciones.headers ?? {}) },
   })
 
   if (!respuesta.ok) {
@@ -80,6 +86,17 @@ async function pedir<T>(ruta: string, opciones: RequestInit = {}): Promise<T> {
 
   if (respuesta.status === 204) return undefined as T
   return respuesta.json() as Promise<T>
+}
+
+/** La API rechaza el cambio con este estado si otra persona ya modificó el elemento. */
+export const ESTADO_CAMBIO_AJENO = 412
+
+/**
+ * La versión del elemento que se tenía a la vista. Con ella, la API no deja pisar
+ * sin aviso lo que otra persona cambió entretanto.
+ */
+function vista(version: number | undefined): Record<string, string> {
+  return version === undefined ? {} : { 'X-NetDoc-Version': String(version) }
 }
 
 /** URL de un archivo servido desde /media (planos y fotografías). */
@@ -148,20 +165,30 @@ export const api = {
   actualizarPosicion: (
     idOCodigo: string | number,
     datos: { plano_id: number; pos_x: number; pos_y: number; usuario?: string },
+    version?: number,
   ) =>
     pedir<ElementoDetalle>(`/elementos/${idOCodigo}/posicion`, {
       method: 'PATCH',
       body: JSON.stringify(datos),
+      headers: vista(version),
     }),
 
   /** Lo lleva al recinto de su número, en la lámina donde está dibujado. */
-  ubicarEnRecinto: (idOCodigo: string | number) =>
-    pedir<ElementoDetalle>(`/elementos/${idOCodigo}/ubicar-en-recinto`, { method: 'POST' }),
+  ubicarEnRecinto: (idOCodigo: string | number, version?: number) =>
+    pedir<ElementoDetalle>(`/elementos/${idOCodigo}/ubicar-en-recinto`, {
+      method: 'POST',
+      headers: vista(version),
+    }),
 
-  actualizarElemento: (idOCodigo: string | number, datos: Record<string, unknown>) =>
+  actualizarElemento: (
+    idOCodigo: string | number,
+    datos: Record<string, unknown>,
+    version?: number,
+  ) =>
     pedir<ElementoDetalle>(`/elementos/${idOCodigo}`, {
       method: 'PATCH',
       body: JSON.stringify(datos),
+      headers: vista(version),
     }),
 
   /** Qué pasaría al trasladarlo, sin cambiar nada. */
@@ -171,26 +198,65 @@ export const api = {
     return pedir<PrevioTraslado>(`/elementos/${idOCodigo}/traslado?${parametros}`)
   },
 
-  trasladar: (idOCodigo: string | number, datos: Record<string, unknown>) =>
+  trasladar: (idOCodigo: string | number, datos: Record<string, unknown>, version?: number) =>
     pedir<ElementoDetalle>(`/elementos/${idOCodigo}/trasladar`, {
       method: 'POST',
       body: JSON.stringify(datos),
+      headers: vista(version),
     }),
 
   /** Baja lógica: se puede deshacer con `restaurar`. */
-  eliminar: (idOCodigo: string | number, motivo?: string, usuario?: string) => {
+  eliminar: (idOCodigo: string | number, motivo?: string, usuario?: string, version?: number) => {
     const parametros = new URLSearchParams()
     if (motivo) parametros.set('motivo', motivo)
     if (usuario) parametros.set('usuario', usuario)
-    return pedir<ElementoDetalle>(`/elementos/${idOCodigo}?${parametros}`, { method: 'DELETE' })
+    return pedir<ElementoDetalle>(`/elementos/${idOCodigo}?${parametros}`, {
+      method: 'DELETE',
+      headers: vista(version),
+    })
   },
 
-  restaurar: (idOCodigo: string | number, usuario?: string) => {
+  restaurar: (idOCodigo: string | number, usuario?: string, version?: number) => {
     const parametros = usuario ? `?${new URLSearchParams({ usuario })}` : ''
     return pedir<ElementoDetalle>(`/elementos/${idOCodigo}/restaurar${parametros}`, {
       method: 'POST',
+      headers: vista(version),
     })
   },
+
+  /**
+   * Si el edificio está vacío y se le pueden cargar planos, cómo deben llamarse y
+   * los que ya esperan. Con `archivos`, revisa esos nombres antes de subirlos.
+   */
+  cargaDePlanos: (edificio: string, archivos: string[] = []) => {
+    const parametros = new URLSearchParams()
+    for (const archivo of archivos) parametros.append('archivo', archivo)
+    return pedir<CargaDePlanos>(`/edificios/${edificio}/carga-de-planos?${parametros}`)
+  },
+
+  /** Sube un plano a la espera, revisado. Nada queda vigente hasta confirmar. */
+  subirPlanoPendiente: (edificio: string, archivo: File) => {
+    const datos = new FormData()
+    datos.append('archivo', archivo, archivo.name)
+    return pedir<LaminaPendiente>(`/edificios/${edificio}/carga-de-planos`, {
+      method: 'POST',
+      body: datos,
+    })
+  },
+
+  quitarPlanoPendiente: (edificio: string, nombre: string) =>
+    pedir<void>(`/edificios/${edificio}/carga-de-planos/${encodeURIComponent(nombre)}`, {
+      method: 'DELETE',
+    }),
+
+  /** Crea los pisos y tramos que nombran los planos en espera y los deja vigentes. */
+  confirmarCargaDePlanos: (edificio: string) =>
+    pedir<CargaConfirmada>(`/edificios/${edificio}/carga-de-planos/confirmar`, {
+      method: 'POST',
+    }),
+
+  /** Una marca que cambia cuando alguien cambia algo del edificio; llega también con el plano. */
+  novedades: (edificio: string) => pedir<{ marca: string }>(`/edificios/${edificio}/novedades`),
 
   eliminados: (edificio: string) => {
     const parametros = new URLSearchParams({ edificio, solo_eliminados: 'true', limite: '1000' })

@@ -25,6 +25,7 @@ from app.api.deps import (
     edificio_permitido,
     obtener_edificio,
     obtener_elemento,
+    obtener_para_modificar,
     obtener_piso,
     obtener_tipo,
     obtener_tramo,
@@ -83,6 +84,7 @@ from app.servicios.codigos import (
 )
 from app.servicios.fotografias import FormatoFotoNoAdmitido, guardar_fotografia
 from app.servicios.historial import registrar_alta, registrar_cambios
+from app.servicios.novedades import marca_del_edificio
 from app.servicios.recintos import (
     buscar_recinto,
     corresponde_al_piso,
@@ -440,6 +442,7 @@ def obtener_mapa(sesion: SesionBD, edificio: str, piso: str, tramo: str | None =
         # al ubicar su contenedor.
         sin_posicionar=sum(1 for e in en_mapa if not e.ubicado and not e.montado),
         elementos=en_mapa,
+        marca=marca_del_edificio(sesion, ed),
     )
 
 
@@ -781,7 +784,7 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
     elimina. Así el técnico puede completar la ficha por partes a medida que
     obtiene los datos en terreno.
     """
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     entrada = datos.model_dump(exclude_unset=True, exclude={"usuario", "comentario"})
     # Borrar las coordenadas sí se permite: es lo que se hace al montarlo.
     if any(entrada.get(campo) is not None for campo in ("plano_id", "pos_x", "pos_y")):
@@ -944,7 +947,7 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
 @router.patch("/{id_o_codigo}/posicion", response_model=ElementoDetalle)
 def actualizar_posicion(id_o_codigo: str, datos: PosicionActualizar, sesion: SesionBD):
     """Guarda las coordenadas del marcador (SOP sección 10.3, punto 19)."""
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     _exigir_marcador_propio(elemento)
     plano = next((p for p in elemento.piso.planos if p.id == datos.plano_id), None)
     if plano is None:
@@ -1085,7 +1088,7 @@ def _aplicar_traslado(
 def trasladar_elemento(id_o_codigo: str, datos: TrasladoPedido, sesion: SesionBD):
     """Lo lleva a otro piso o tramo de su edificio. Su código cambia con él y el
     anterior queda reservado: ver ``app.servicios.traslados``."""
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     piso, tramo = _destino_de_traslado(sesion, elemento, datos.piso, datos.tramo)
     _aplicar_traslado(
         sesion,
@@ -1110,7 +1113,7 @@ def ubicar_en_su_recinto(id_o_codigo: str, sesion: SesionBD, usuario: str | None
     datos quedan en el mismo punto que los demás de la sala (el visor los
     agrupa); los equipos, junto a los que ya están ahí.
     """
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     _exigir_marcador_propio(elemento)
     if not elemento.numero_recinto:
         raise HTTPException(
@@ -1142,7 +1145,7 @@ def dar_de_baja(
     antes: si no, sus equipos dejarían de verse. Lo que solo está conectado (un
     AP, una UPS) tiene su propio marcador: se desconecta y sigue donde está.
     """
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     if not elemento.activo:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{elemento.codigo} ya está eliminado")
     hijos = [h for h in elemento.hijos if h.activo]
@@ -1185,7 +1188,7 @@ def restaurar_elemento(
     rack y por ubicar.
     Lo que se desconectó de él al eliminarlo vuelve a conectarse.
     """
-    elemento = obtener_elemento(sesion, id_o_codigo)
+    elemento = obtener_para_modificar(sesion, id_o_codigo)
     if elemento.activo:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{elemento.codigo} no está eliminado")
 

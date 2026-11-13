@@ -1,10 +1,11 @@
 /** Orquestador del visor: selección de ubicación, filtros, plano y ficha. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, ErrorApi } from './api/cliente'
+import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from './api/cliente'
 import { armarArbol } from './arbol'
 import { BarraSuperior } from './components/BarraSuperior'
+import { CargaDePlanos } from './components/CargaDePlanos'
 import { FormularioAlta } from './components/FormularioAlta'
 import { PanelDetalle } from './components/PanelDetalle'
 import { PanelEliminados } from './components/PanelEliminados'
@@ -12,6 +13,7 @@ import { PanelLateral } from './components/PanelLateral'
 import { leerUsuario } from './components/camposFormulario'
 import { VisorPlano } from './components/VisorPlano'
 import type {
+  CargaConfirmada,
   DefinicionAtributo,
   Edificio,
   ElementoDetalle,
@@ -25,6 +27,14 @@ import type {
 } from './types'
 
 const EDIFICIO_INICIAL = 'CADI'
+
+/** Cada cuánto se pregunta si otra persona cambió algo en el edificio. */
+const PAUSA_NOVEDADES_MS = 15_000
+/**
+ * Sin usar el visor por este tiempo, se deja de preguntar: una pestaña olvidada
+ * no carga al servidor, y la sesión vence por inactividad como siempre.
+ */
+const INACTIVIDAD_MS = 5 * 60_000
 
 /**
  * Vista con la que se abre un piso: el piso completo si tiene plano propio
@@ -65,6 +75,11 @@ export default function App({ usuario, onSalir }: Props) {
   const [historial, setHistorial] = useState<HistorialEntrada[] | null>(null)
   const [posicionando, setPosicionando] = useState<ElementoMapa | null>(null)
   const [agregando, setAgregando] = useState(false)
+  /** El edificio está vacío y se le pueden cargar planos desde el visor. */
+  const [cargaPermitida, setCargaPermitida] = useState(false)
+  const [cargandoPlanos, setCargandoPlanos] = useState(false)
+  const [versionPisos, setVersionPisos] = useState(0)
+  const [aviso, setAviso] = useState<string | null>(null)
   const [viendoEliminados, setViendoEliminados] = useState(false)
   /** Lo último que se eliminó, para poder deshacerlo. */
   const [eliminado, setEliminado] = useState<ElementoDetalle | null>(null)
@@ -72,11 +87,41 @@ export default function App({ usuario, onSalir }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
 
-  const reportar = useCallback((e: unknown) => {
-    if (e instanceof ErrorApi) setError(e.estado ? `${e.estado}: ${e.message}` : e.message)
-    else if (e instanceof Error) setError(e.message)
-    else setError('Error desconocido')
+  // --- Lo que hacen las demás personas ---------------------------------------
+  /** La versión más nueva del elemento abierto, cuando otra persona lo modificó. */
+  const [versionNueva, setVersionNueva] = useState<ElementoDetalle | null>(null)
+  const detalleActual = useRef(detalle)
+  detalleActual.current = detalle
+
+  /** Va a buscar el elemento abierto: si cambió, la ficha lo muestra o lo avisa. */
+  const revisarFicha = useCallback(() => {
+    const abierto = detalleActual.current
+    if (!abierto) return
+    api
+      .elemento(abierto.id)
+      .then((reciente) => {
+        const sigue = detalleActual.current
+        if (sigue?.id === reciente.id && sigue.version !== reciente.version) {
+          setVersionNueva(reciente)
+        }
+      })
+      .catch(() => {
+        /* se volverá a intentar con la próxima novedad */
+      })
   }, [])
+
+  const reportar = useCallback(
+    (e: unknown) => {
+      if (e instanceof ErrorApi) {
+        // El mensaje ya lo explica: otra persona lo modificó antes.
+        const cambioAjeno = e.estado === ESTADO_CAMBIO_AJENO
+        if (cambioAjeno) revisarFicha()
+        setError(e.estado && !cambioAjeno ? `${e.estado}: ${e.message}` : e.message)
+      } else if (e instanceof Error) setError(e.message)
+      else setError('Error desconocido')
+    },
+    [revisarFicha],
+  )
 
   // --- Carga inicial del catálogo ---------------------------------------
   useEffect(() => {
@@ -108,12 +153,20 @@ export default function App({ usuario, onSalir }: Props) {
         setPisos(lista)
         setPisoSel(lista[0]?.codigo ?? '')
         setTramoSel(tramoInicial(lista[0]))
+        // Sin ningún plano, puede ser un edificio vacío: se le pueden cargar.
+        setCargaPermitida(false)
+        if (lista.every((p) => p.planos_vigentes.length === 0)) {
+          api
+            .cargaDePlanos(edificioSel)
+            .then((estado) => vigente && setCargaPermitida(estado.permitida))
+            .catch(() => vigente && setCargaPermitida(false))
+        }
       })
       .catch((e) => vigente && reportar(e))
     return () => {
       vigente = false
     }
-  }, [edificioSel, reportar])
+  }, [edificioSel, versionPisos, reportar])
 
   // --- Elementos y plano del piso ----------------------------------------
   useEffect(() => {
@@ -133,6 +186,52 @@ export default function App({ usuario, onSalir }: Props) {
 
   const recargarMapa = useCallback(() => setVersionMapa((v) => v + 1), [])
 
+  // --- Novedades -----------------------------------------------------------
+  // Cada plano llega con la marca del edificio en ese momento. Mientras se usa el
+  // visor, se pregunta cada tanto por la marca actual, que es barato: si es otra,
+  // alguien cambió algo, y recién entonces se piden de nuevo el plano y la ficha.
+  const marcaVista = useRef<string | null>(null)
+  marcaVista.current = mapa?.marca ?? null
+  useEffect(() => {
+    if (!edificioSel) return
+    let vigente = true
+    let ultimoUso = Date.now()
+
+    const revisar = () => {
+      if (document.hidden || Date.now() - ultimoUso > INACTIVIDAD_MS) return
+      api
+        .novedades(edificioSel)
+        .then(({ marca }) => {
+          if (!vigente || marcaVista.current === null || marca === marcaVista.current) return
+          recargarMapa()
+          revisarFicha()
+        })
+        .catch(() => {
+          /* sin conexión: lo dirá la próxima acción; una sesión vencida ya pide ingresar */
+        })
+    }
+    const alUsar = () => {
+      const dormido = Date.now() - ultimoUso > INACTIVIDAD_MS
+      ultimoUso = Date.now()
+      if (dormido) revisar()
+    }
+    const alVolver = () => {
+      if (!document.hidden) revisar()
+    }
+
+    const reloj = window.setInterval(revisar, PAUSA_NOVEDADES_MS)
+    window.addEventListener('pointerdown', alUsar)
+    window.addEventListener('keydown', alUsar)
+    document.addEventListener('visibilitychange', alVolver)
+    return () => {
+      vigente = false
+      window.clearInterval(reloj)
+      window.removeEventListener('pointerdown', alUsar)
+      window.removeEventListener('keydown', alUsar)
+      document.removeEventListener('visibilitychange', alVolver)
+    }
+  }, [edificioSel, recargarMapa, revisarFicha])
+
   // --- Cambio de ubicación -------------------------------------------------
   // El elemento seleccionado pertenece al piso o tramo anterior: si siguiera
   // activo, "Ubicar en el plano" lo intentaría posicionar sobre otra lámina.
@@ -146,7 +245,9 @@ export default function App({ usuario, onSalir }: Props) {
     limpiarSeleccion()
     setAgregando(false)
     setViendoEliminados(false)
+    setCargandoPlanos(false)
     setEliminado(null)
+    setAviso(null)
     // Sin esto se pediría el mapa del piso anterior en el edificio nuevo.
     setPisos([])
     setPisoSel('')
@@ -171,7 +272,29 @@ export default function App({ usuario, onSalir }: Props) {
   const abrirAlta = () => {
     limpiarSeleccion()
     setViendoEliminados(false)
+    setCargandoPlanos(false)
     setAgregando(true)
+  }
+
+  // --- Planos de un edificio vacío -------------------------------------------
+  const abrirCargaDePlanos = () => {
+    limpiarSeleccion()
+    setAgregando(false)
+    setViendoEliminados(false)
+    setCargandoPlanos(true)
+  }
+
+  const alCargarPlanos = (resultado: CargaConfirmada) => {
+    setCargandoPlanos(false)
+    setCargaPermitida(false)
+    const partes = [`${resultado.planos.length} plano(s)`]
+    if (resultado.pisos.length) partes.push(`${resultado.pisos.length} piso(s)`)
+    if (resultado.tramos.length) partes.push(`${resultado.tramos.length} tramo(s)`)
+    setAviso(
+      `Cargados en ${edificioSel}: ${partes.join(', ')}. Mientras se preparan para moverse con ` +
+        'fluidez, el visor muestra las láminas originales.',
+    )
+    setVersionPisos((v) => v + 1)
   }
 
   /**
@@ -204,7 +327,7 @@ export default function App({ usuario, onSalir }: Props) {
 
   const restaurar = (elemento: ElementoDetalle) => {
     api
-      .restaurar(elemento.id, leerUsuario() || undefined)
+      .restaurar(elemento.id, leerUsuario() || undefined, elemento.version)
       .then((restaurado) => {
         setEliminado(null)
         mostrarCreado(restaurado)
@@ -233,7 +356,11 @@ export default function App({ usuario, onSalir }: Props) {
     (x: number, y: number) => {
       if (!posicionando || !mapa?.plano) return
       api
-        .actualizarPosicion(posicionando.id, { plano_id: mapa.plano.id, pos_x: x, pos_y: y })
+        .actualizarPosicion(
+          posicionando.id,
+          { plano_id: mapa.plano.id, pos_x: x, pos_y: y },
+          detalle?.id === posicionando.id ? detalle.version : undefined,
+        )
         .then((actualizado) => {
           setDetalle(actualizado)
           setHistorial(null) // el cambio de posición agrega entradas al historial
@@ -242,14 +369,14 @@ export default function App({ usuario, onSalir }: Props) {
         })
         .catch(reportar)
     },
-    [posicionando, mapa, recargarMapa, reportar],
+    [posicionando, mapa, detalle, recargarMapa, reportar],
   )
 
   /** Lo deja en el recinto de su número; puede quedar en la lámina de otro tramo. */
   const ubicarEnRecinto = useCallback(() => {
     if (!detalle) return
     api
-      .ubicarEnRecinto(detalle.id)
+      .ubicarEnRecinto(detalle.id, detalle.version)
       .then((actualizado) => {
         setDetalle(actualizado)
         setHistorial(null)
@@ -264,7 +391,7 @@ export default function App({ usuario, onSalir }: Props) {
     (codigoTramo: string) => {
       if (!detalle) return
       api
-        .actualizarElemento(detalle.id, { tramo_lamina: codigoTramo })
+        .actualizarElemento(detalle.id, { tramo_lamina: codigoTramo }, detalle.version)
         .then((actualizado) => {
           setDetalle(actualizado)
           setHistorial(null)
@@ -407,6 +534,17 @@ export default function App({ usuario, onSalir }: Props) {
         </div>
       )}
 
+      {aviso && (
+        <div className="franja-exito" role="status">
+          <span>{aviso}</span>
+          <span className="franja-exito__botones">
+            <button className="boton-enlace" onClick={() => setAviso(null)}>
+              cerrar
+            </button>
+          </span>
+        </div>
+      )}
+
       <main className="cuerpo">
         <PanelLateral
           tipos={tipos}
@@ -445,9 +583,20 @@ export default function App({ usuario, onSalir }: Props) {
           onSeleccionar={(e) => seleccionar(e.id)}
           onPosicionar={posicionar}
           onCancelarPosicion={() => setPosicionando(null)}
+          edificio={edificioSel}
+          edificioVacio={cargaPermitida}
+          onCargarPlanos={cargaPermitida && !cargandoPlanos ? abrirCargaDePlanos : undefined}
         />
 
-        {agregando && (
+        {cargandoPlanos && (
+          <CargaDePlanos
+            edificio={edificioSel}
+            onCerrar={() => setCargandoPlanos(false)}
+            onConfirmada={alCargarPlanos}
+          />
+        )}
+
+        {agregando && !cargandoPlanos && (
           <FormularioAlta
             edificio={edificioSel}
             pisos={pisos}
@@ -461,7 +610,7 @@ export default function App({ usuario, onSalir }: Props) {
           />
         )}
 
-        {viendoEliminados && !agregando && (
+        {viendoEliminados && !agregando && !cargandoPlanos && (
           <PanelEliminados
             edificio={edificioSel}
             onCerrar={() => setViendoEliminados(false)}
@@ -473,7 +622,7 @@ export default function App({ usuario, onSalir }: Props) {
           />
         )}
 
-        {detalle && !agregando && !viendoEliminados && (
+        {detalle && !agregando && !viendoEliminados && !cargandoPlanos && (
           <PanelDetalle
             key={detalle.id}
             detalle={detalle}
@@ -502,6 +651,16 @@ export default function App({ usuario, onSalir }: Props) {
             onTrasladado={mostrarCreado}
             onEliminado={alEliminar}
             onRestaurar={() => restaurar(detalle)}
+            hayVersionNueva={
+              versionNueva?.id === detalle.id && versionNueva.version !== detalle.version
+            }
+            onVerVersionNueva={() => {
+              if (versionNueva?.id !== detalle.id) return
+              setDetalle(versionNueva)
+              setVersionNueva(null)
+              setHistorial(null) // el cambio ajeno agregó entradas
+            }}
+            onCambioAjeno={revisarFicha}
           />
         )}
       </main>

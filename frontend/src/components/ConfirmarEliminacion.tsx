@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { api } from '../api/cliente'
+import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from '../api/cliente'
 import { Campo, erroresDelServidor, leerUsuario, recordarUsuario } from './camposFormulario'
 import type { ElementoDetalle } from '../types'
 
@@ -11,9 +11,11 @@ interface Props {
   detalle: ElementoDetalle
   onCancelar: () => void
   onEliminado: (eliminado: ElementoDetalle) => void
+  /** Otra persona lo modificó mientras se confirmaba: no se eliminó. */
+  onCambioAjeno: () => void
 }
 
-export function ConfirmarEliminacion({ detalle, onCancelar, onEliminado }: Props) {
+export function ConfirmarEliminacion({ detalle, onCancelar, onEliminado, onCambioAjeno }: Props) {
   const [motivo, setMotivo] = useState('')
   const [usuario, setUsuario] = useState(leerUsuario)
   const [error, setError] = useState<string | null>(null)
@@ -28,9 +30,15 @@ export function ConfirmarEliminacion({ detalle, onCancelar, onEliminado }: Props
     setGuardando(true)
     try {
       onEliminado(
-        await api.eliminar(detalle.id, motivo.trim() || undefined, usuario.trim() || undefined),
+        await api.eliminar(
+          detalle.id,
+          motivo.trim() || undefined,
+          usuario.trim() || undefined,
+          detalle.version,
+        ),
       )
     } catch (e) {
+      if (e instanceof ErrorApi && e.estado === ESTADO_CAMBIO_AJENO) onCambioAjeno()
       setError(erroresDelServidor(e).general)
       setGuardando(false)
     }

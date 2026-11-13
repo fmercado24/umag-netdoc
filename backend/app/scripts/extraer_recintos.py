@@ -49,7 +49,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.scripts.cargar_planos import archivos_de_laminas, dimensiones_svg
+from app.scripts.cargar_planos import archivos_de_laminas
 from app.scripts.importar_edificio import (
     DIR_DATA,
     EQ_UBICACION,
@@ -62,6 +62,7 @@ from app.scripts.importar_edificio import (
 )
 from app.servicios.planos import (
     NombreLaminaInvalido,
+    dimensiones_svg,
     interpretar_nombre_lamina,
     quitar_caracteres_de_control,
 )

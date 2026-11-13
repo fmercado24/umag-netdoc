@@ -58,6 +58,27 @@ edificios, no cambia el catálogo de tipos ni las VLAN de campus, y no accede a 
 las métricas ni a lo que leen otros sistemas, que es de todos los edificios. El límite lo
 aplica la API, no la pantalla.
 
+### Varias personas a la vez
+
+Varias personas pueden trabajar al mismo tiempo, con cuentas distintas o con la misma.
+Cada ingreso abre su propia sesión, y salir cierra solo esa.
+
+| Situación | Qué hace NetDoc |
+|---|---|
+| Dos personas agregan elementos del mismo tipo en el mismo piso | Las peticiones que escriben se atienden de a una: cada elemento recibe su propio código. Antes, las dos recibían el mismo y una fallaba |
+| Dos personas editan, trasladan o eliminan el mismo elemento | Guarda la primera. A la segunda se le avisa que el elemento cambió y quién lo modificó, se le muestra cómo quedó, y su cambio no se aplica encima |
+| Una persona cambia algo mientras otra mira el mismo edificio | El plano, la lista y la ficha abierta de la otra se actualizan solos en unos 15 segundos |
+| Alguien deja el visor abierto | A los cinco minutos sin usarlo deja de consultar. Esa consulta no cuenta como actividad, así que la sesión vence igual a los 30 minutos |
+| Una importación está corriendo en el servidor | Las consultas siguen; los cambios esperan hasta 30 segundos y, si no les toca, responden «NetDoc está ocupado» en vez de fallar |
+
+La respuesta a quien guarda llega cuando el cambio ya quedó en la base, así que otra
+persona no puede dejar de ver algo que ya se informó como guardado.
+
+**Lo que no hace:** no muestra quién más está conectado ni quién tiene abierto un
+elemento, y no mezcla dos ediciones del mismo elemento: la segunda persona debe volver
+a hacer su cambio sobre la versión nueva. Quien use la API por su cuenta, sin enviar la
+versión que tenía a la vista (`X-NetDoc-Version`), no tiene esa comprobación.
+
 ### Si se bloquea el ingreso
 
 El tercer intento fallido desde un equipo lo bloquea por 15 minutos, y durante el
@@ -153,12 +174,13 @@ No es una certificación ni reemplaza una auditoría: es lo que está implementa
 siguiendo las recomendaciones vigentes de OWASP (ASVS, Top 10 y las guías de
 autenticación, contraseñas y sesiones) y de NIST SP 800-63B. Las pruebas están en
 `backend/tests/test_autenticacion.py`, `test_proteccion.py`, `test_definir_clave.py` y
-`test_usuarios.py`.
+`test_usuarios.py`; las de uso simultáneo, en `test_varias_personas.py`.
 
 | Riesgo | Control | Dónde |
 |---|---|---|
 | Uso sin autenticarse | Todo se rechaza salvo lo exceptuado explícitamente: una ruta nueva nace protegida. Sin sesión solo responden la pantalla de ingreso con sus recursos, `/salud` y los webhooks | `servicios/proteccion.py` |
 | Usuario limitado a un edificio que pide lo de otro | La sesión dice de quién es y sus permisos se leen en cada petición. Las funciones por las que pasan las rutas para buscar un edificio o un elemento rechazan lo ajeno, los listados se filtran, y sus planos y fotos se reconocen por el nombre del archivo. Para ese usuario, una ruta nueva nace cerrada; una prueba recorre todas las rutas y falla si aparece una sin declarar | `servicios/proteccion.py`, `api/deps.py` |
+| Cambios simultáneos que se pisan | Las escrituras se atienden de a una, cada elemento lleva una versión que se comprueba al modificarlo, y un choque en la base responde 409 en vez de un error interno | `db/session.py`, `api/deps.py`, `main.py` |
 | Adivinar qué usuarios existen | El mensaje no distingue usuario de contraseña, y la contraseña se verifica aunque el usuario no exista, para tardar lo mismo | `servicios/autenticacion.py` |
 | Secreto en el repositorio | El hash vive en `.env`; el código no trae valor por omisión, y sin él nadie ingresa. Las claves de Docker tampoco tienen valor por omisión | `core/config.py`, `scripts/definir_clave.py`, `docker-compose.yml` |
 | Robo de la base o de `.env` | Contraseña con Argon2id (64 MiB). Las sesiones se guardan como SHA-256 de un token aleatorio de 256 bits | `servicios/autenticacion.py` |
@@ -183,9 +205,10 @@ Son decisiones abiertas, en orden de lo que más reduciría el riesgo:
 
 1. **Una contraseña es un solo factor.** No hay segundo factor (TOTP o WebAuthn), que es
    lo que hoy se espera de una cuenta de administrador. Con una cuenta por persona, el
-   registro del servidor dice quién ingresó y desde dónde, pero el historial de cada
-   elemento sigue anotando lo que se escriba en «Registrado por», no la cuenta. Integrar
-   el directorio de la UMAG (LDAP u OIDC) resolvería ambas cosas.
+   registro del servidor dice quién ingresó y desde dónde, y el historial de cada
+   elemento anota la cuenta; pero si se escribe un nombre en «Registrado por», queda ese
+   nombre y no la cuenta. Integrar el directorio de la UMAG (LDAP u OIDC) resolvería
+   ambas cosas.
 2. **El largo de la contraseña.** El límite de intentos protege de quien prueba por la
    pantalla de ingreso, no de quien obtenga `.env`, que podría probar sin límite contra el
    hash. Una contraseña corta o con un patrón predecible se puede adivinar así, a pesar de

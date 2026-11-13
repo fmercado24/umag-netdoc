@@ -55,6 +55,11 @@ PREFIJOS_CON_ALCANCE = (
     "/api/v1/vlans",
 )
 
+#: Lo que el visor consulta solo, cada pocos segundos, para mostrar lo que hacen
+#: las demás personas. No cuenta como actividad: si contara, una pestaña abierta
+#: mantendría viva la sesión para siempre.
+SUFIJO_SIN_ACTIVIDAD = "/novedades"
+
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: Tamaño máximo de un cuerpo que no sea la carga de un archivo con sesión.
@@ -171,8 +176,15 @@ def _ruta(request: Request) -> str:
     return request.scope["path"]
 
 
+#: Planos subidos que aún no se confirman (``servicios.carga_planos``): no son de
+#: nadie todavía, así que no se muestran.
+PREFIJO_PENDIENTES = "/media/pendientes/"
+
+
 async def _filtrar(request: Request, call_next) -> Response:
     ruta = _ruta(request)
+    if posixpath.normpath(ruta).startswith(PREFIJO_PENDIENTES.rstrip("/")):
+        return _rechazo(404, "Not Found")
     if not es_https(request) and ruta != "/salud" and not _es_local(request):
         return _rechazo(403, "Desde otros equipos, NetDoc solo atiende por HTTPS")
     if _viene_de_otro_sitio(request):
@@ -182,7 +194,8 @@ async def _filtrar(request: Request, call_next) -> Response:
     if ruta not in RUTAS_PUBLICAS and not ruta.startswith(PREFIJOS_PUBLICOS):
         token = request.cookies.get(nombre_cookie(request))
         if token:
-            acceso = await run_in_threadpool(sesion_vigente, token)
+            renovar = not ruta.endswith(SUFIJO_SIN_ACTIVIDAD)
+            acceso = await run_in_threadpool(sesion_vigente, token, renovar=renovar)
         if acceso is None and not (
             ruta.startswith(PREFIJOS_CON_TOKEN)
             and token_monitoreo_valido(

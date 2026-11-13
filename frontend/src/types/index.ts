@@ -133,6 +133,8 @@ export interface ElementoMapa {
 }
 
 export interface Elemento extends ElementoMapa {
+  /** Sube en cada cambio: se envía al modificarlo, para no pisar el cambio de otra persona. */
+  version: number
   edificio_codigo: string
   piso_codigo: string
   tramo_codigo: string | null
@@ -252,6 +254,8 @@ export interface RespuestaMapa {
   total: number
   sin_posicionar: number
   elementos: ElementoEnMapa[]
+  /** Como estaba el edificio al armar esta respuesta (ver `api.novedades`). */
+  marca: string
 }
 
 export interface OpcionEnum {
@@ -276,4 +280,48 @@ export interface HistorialEntrada {
   usuario: string | null
   comentario: string | null
   registrado_en: string
+}
+
+/** Un plano subido que espera a confirmarse (ver api.cargaDePlanos). */
+export interface LaminaPendiente {
+  nombre: string
+  piso: string
+  tramo: string | null
+  /** «Piso 1, tramo 1», «Piso 2 completo», «Subterráneo». */
+  destino: string
+  ancho_px: number
+  alto_px: number
+  bytes: number
+}
+
+/** Lo que dice el nombre de un archivo, antes de subirlo. */
+export interface RevisionLamina {
+  archivo: string
+  nombre: string | null
+  piso: string | null
+  tramo: string | null
+  destino: string | null
+  /** Por qué se rechaza; nulo si se acepta. */
+  error: string | null
+  /** El nombre que debería tener, si se pudo deducir. */
+  sugerencia: string | null
+}
+
+export interface CargaDePlanos {
+  edificio: string
+  /** Solo en un edificio sin planos ni elementos. */
+  permitida: boolean
+  motivo: string | null
+  nomenclatura: string
+  ejemplos: { nombre: string; destino: string }[]
+  /** Cómo se llama el plano de un edificio que tiene uno solo. */
+  unico: string
+  pendientes: LaminaPendiente[]
+  revisados: RevisionLamina[]
+}
+
+export interface CargaConfirmada {
+  pisos: string[]
+  tramos: string[]
+  planos: Plano[]
 }

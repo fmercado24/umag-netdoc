@@ -423,6 +423,15 @@ code {
   color: #92400e;
 }
 
+/* Otra persona modificó el elemento que aquí se está editando. */
+.aviso--cambio {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  border-color: #d97706;
+}
+
 .lista {
   list-style: none;
   margin: 0;
@@ -1394,6 +1403,98 @@ code {
 
 .error {
   color: var(--error);
+}
+
+/* --- Carga de planos de un edificio vacío --------------------------------- */
+.nomenclatura {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.nomenclatura td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.nomenclatura td:first-child {
+  white-space: nowrap;
+}
+
+.nomenclatura__unico td {
+  background: var(--fondo-suave);
+  font-weight: 600;
+}
+
+/* El input queda dentro del botón: se ve el botón y se abre el selector. */
+.selector-archivos {
+  position: relative;
+  display: inline-block;
+  align-self: flex-start;
+  overflow: hidden;
+}
+
+.selector-archivos input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.selector-archivos:focus-within {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+
+.carga__filas,
+.carga__pendientes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.carga__fila {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.carga__fila--rechazado {
+  border-color: #fca5a5;
+  background: var(--error-suave);
+  color: var(--error);
+}
+
+.carga__pendientes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--borde);
+}
+
+.carga__marca {
+  color: #166534;
+  font-weight: 700;
+}
+
+.carga__texto {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.carga__texto small {
+  color: var(--tinta-tenue);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 /* --- Responsivo ---------------------------------------------------------- */

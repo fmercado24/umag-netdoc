@@ -2,31 +2,44 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.session import obtener_sesion
-from app.models import Edificio, Elemento, Piso, TipoElemento, Tramo
+from app.db.session import obtener_sesion, sesion_de_trabajo
+from app.models import Edificio, Elemento, HistorialElemento, Piso, TipoElemento, Tramo
 from app.servicios.codigos import elemento_por_codigo
 
+#: Con scope="function" la transacción se confirma antes de responder. Si no,
+#: FastAPI lo haría después de enviar la respuesta: otra persona podría no ver
+#: todavía un cambio que ya se informó como guardado.
+SesionSimple = Annotated[Session, Depends(obtener_sesion, scope="function")]
 
-def _sesion_con_acceso(
-    request: Request, sesion: Annotated[Session, Depends(obtener_sesion)]
-) -> Session:
-    """La sesión de base de datos, con quién la usa (lo deja ``proteccion``).
+#: La versión del elemento que tenía a la vista quien pide modificarlo.
+CABECERA_VERSION = "X-NetDoc-Version"
 
-    Así las funciones de este módulo, por las que pasan las rutas para buscar un
-    edificio o un elemento, hacen cumplir el alcance del usuario sin que cada
-    ruta tenga que acordarse.
+
+def _sesion_de_la_peticion(request: Request) -> Iterator[Session]:
+    """La sesión de base de datos de una petición.
+
+    * Si la petición escribe, espera su turno: las escrituras van de a una
+      (``app.db.session``).
+    * Lleva quién la usa (lo deja ``proteccion``), para que las funciones de este
+      módulo, por las que pasan las rutas para buscar un edificio o un elemento,
+      hagan cumplir el alcance del usuario sin que cada ruta tenga que acordarse.
+    * Lleva la versión del elemento que esa persona tenía a la vista, si la dijo.
     """
-    sesion.info["acceso"] = getattr(request.state, "acceso", None)
-    return sesion
+    with sesion_de_trabajo(escribe=request.method not in ("GET", "HEAD", "OPTIONS")) as sesion:
+        sesion.info["acceso"] = getattr(request.state, "acceso", None)
+        vista = request.headers.get(CABECERA_VERSION, "")
+        sesion.info["version_vista"] = int(vista) if vista.isdecimal() and len(vista) < 10 else None
+        yield sesion
 
 
-SesionBD = Annotated[Session, Depends(_sesion_con_acceso)]
+SesionBD = Annotated[Session, Depends(_sesion_de_la_peticion, scope="function")]
 
 
 def edificio_permitido(sesion: Session) -> str | None:
@@ -116,4 +129,30 @@ def obtener_elemento(sesion: Session, id_o_codigo: int | str) -> Elemento:
     permitido = edificio_permitido(sesion)
     if elemento is None or (permitido and elemento.edificio.codigo != permitido):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No existe el elemento '{id_o_codigo}'")
+    return elemento
+
+
+def obtener_para_modificar(sesion: Session, id_o_codigo: int | str) -> Elemento:
+    """Como ``obtener_elemento``, para las rutas que lo cambian.
+
+    Si quien lo pide dice qué versión tenía a la vista y ya no es esa, otra
+    persona lo modificó entretanto: se rechaza (412) en vez de pisar su cambio
+    sin que ninguna de las dos se entere. Sin la cabecera no se comprueba, que es
+    lo que necesitan los programas que no muestran el elemento antes de cambiarlo.
+    """
+    elemento = obtener_elemento(sesion, id_o_codigo)
+    vista = sesion.info.get("version_vista")
+    if vista is not None and vista != elemento.version:
+        ultimo = sesion.scalar(
+            select(HistorialElemento)
+            .where(HistorialElemento.elemento_id == elemento.id)
+            .order_by(HistorialElemento.id.desc())
+            .limit(1)
+        )
+        quien = f" ({ultimo.usuario})" if ultimo is not None and ultimo.usuario else ""
+        raise HTTPException(
+            status.HTTP_412_PRECONDITION_FAILED,
+            f"Otra persona{quien} modificó {elemento.codigo} mientras lo tenías abierto. "
+            "Revisa cómo quedó antes de volver a hacer el cambio.",
+        )
     return elemento

@@ -74,6 +74,7 @@ from app.models import (
     Tramo,
     Vlan,
 )
+from app.servicios.carga_planos import NOMBRES_PISO
 from app.servicios.codigos import RE_ROTULO_PD, SERVICIOS_POR_PREFIJO, construir_codigo
 from app.servicios.historial import registrar_alta, registrar_cambios
 from app.servicios.levantamientos import (
@@ -193,16 +194,6 @@ RE_TRAMO = re.compile(r"tramo\s*(\d+)", re.IGNORECASE)
 RE_RACK = re.compile(r"rack\s*-?\s*(\d+)", re.IGNORECASE)
 RE_PUNTOS = re.compile(r"(\d+)\s*puntos?", re.IGNORECASE)
 RE_DISPONIBILIDAD = re.compile(r"disponibilidad\s*(\d+)\s*puntos?", re.IGNORECASE)
-
-NOMBRES_PISO = {
-    "P00": "Subterráneo",
-    "P01": "Primer piso",
-    "P02": "Segundo piso",
-    "P03": "Tercer piso",
-    "P04": "Cuarto piso",
-    "P05": "Quinto piso",
-    "P06": "Sexto piso",
-}
 
 
 def texto_csv(ruta: Path) -> tuple[str, str, str | None]:

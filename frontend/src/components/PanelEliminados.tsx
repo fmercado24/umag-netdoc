@@ -35,7 +35,7 @@ export function PanelEliminados({ edificio, onCerrar, onSeleccionar, onRestaurad
   const restaurar = (elemento: Elemento) => {
     setError(null)
     api
-      .restaurar(elemento.id, leerUsuario() || undefined)
+      .restaurar(elemento.id, leerUsuario() || undefined, elemento.version)
       .then(onRestaurado)
       .catch((e) => setError(erroresDelServidor(e).general))
   }

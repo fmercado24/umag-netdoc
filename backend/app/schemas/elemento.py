@@ -244,6 +244,8 @@ class ElementoLeer(ElementoMapa):
     unidad_rack: int | None = None
     responsable_nombre: str | None = None
     activo: bool
+    #: Sube en cada cambio: se devuelve en ``X-NetDoc-Version`` al modificarlo.
+    version: int
 
 
 class FotografiaLeer(BaseModel):
@@ -377,3 +379,6 @@ class RespuestaMapa(BaseModel):
     total: int
     sin_posicionar: int
     elementos: list[ElementoEnMapa]
+    #: Como estaba el edificio al armar esta respuesta: si la de
+    #: ``/edificios/{codigo}/novedades`` es otra, alguien cambió algo.
+    marca: str

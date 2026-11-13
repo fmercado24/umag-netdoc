@@ -30,6 +30,12 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 Los pasos 6 y 7 los hace solo `./iniciar.sh` para cualquier edificio **nuevo**
 (sin elementos todavía): basta con dejar su carpeta en `data/` y arrancar.
 
+**Sin terminal**, para empezar un edificio vacío (sin planos ni elementos): elíjalo en el
+visor y use **Cargar planos**. Con los nombres de las láminas (sección 4) se crean sus
+pisos y tramos, y los elementos se agregan después desde el mismo visor. Lo que este
+camino no hace es leer los números de sala de las láminas (sección 4.1): para eso, deje
+también las láminas en `data/<p>/planos/` y corra `extraer_recintos`.
+
 ---
 
 ## 0. Antes de empezar
@@ -286,6 +292,11 @@ planillas:
   (sección 11).
 - Solo se cargan archivos `.svg`. Cualquier otro archivo de la carpeta se
   informa como omitido.
+
+**Desde el visor**, en un edificio vacío, **Cargar planos** pide estos mismos nombres:
+rechaza el archivo que no los sigue, dice cómo debería llamarse si se puede deducir, y
+muestra los ejemplos del edificio, incluido el de un edificio con un único plano
+(`ing-p01.svg`).
 
 Si las láminas llegaron con otros nombres («ing 1er piso tramo 1.svg»,
 «ING_P1_T01.svg»), el paso siguiente las renombra solo cuando el nombre

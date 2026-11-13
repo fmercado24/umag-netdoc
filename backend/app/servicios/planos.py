@@ -154,6 +154,19 @@ def interpretar_nombre_lamina(nombre: str, *, edificio: str | None = None) -> No
     return lamina
 
 
+def dimensiones_svg(contenido: bytes) -> tuple[int, int]:
+    """Ancho y alto del SVG en sus propias unidades (las del ``viewBox``)."""
+    raiz = ElementTree.fromstring(contenido)
+    caja = raiz.get("viewBox")
+    if caja:
+        _, _, ancho, alto = (float(v) for v in re.split(r"[\s,]+", caja.strip()))
+    else:
+        ancho, alto = float(raiz.get("width", 0)), float(raiz.get("height", 0))
+    if ancho <= 0 or alto <= 0:
+        raise ValueError("el SVG no declara viewBox ni width/height")
+    return round(ancho), round(alto)
+
+
 def quitar_caracteres_de_control(contenido: bytes) -> bytes:
     """Lo que ``sanear_svg`` guarda, sin validar el XML (mucho más rápido)."""
     return RE_CONTROL_XML.sub(b"", contenido)

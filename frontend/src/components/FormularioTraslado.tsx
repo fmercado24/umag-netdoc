@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { api } from '../api/cliente'
+import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from '../api/cliente'
 import {
   Campo,
   erroresDelServidor,
@@ -25,9 +25,17 @@ interface Props {
   pisos: Piso[]
   onCancelar: () => void
   onTrasladado: (trasladado: ElementoDetalle) => void
+  /** Otra persona lo modificó mientras se preparaba el traslado: no se hizo. */
+  onCambioAjeno: () => void
 }
 
-export function FormularioTraslado({ detalle, pisos, onCancelar, onTrasladado }: Props) {
+export function FormularioTraslado({
+  detalle,
+  pisos,
+  onCancelar,
+  onTrasladado,
+  onCambioAjeno,
+}: Props) {
   const [codigoPiso, setCodigoPiso] = useState(detalle.piso_codigo)
   const [codigoTramo, setCodigoTramo] = useState(detalle.tramo_codigo ?? '')
   const [ubicacion, setUbicacion] = useState(detalle.ubicacion_descriptiva ?? '')
@@ -151,8 +159,9 @@ export function FormularioTraslado({ detalle, pisos, onCancelar, onTrasladado }:
 
     setGuardando(true)
     try {
-      onTrasladado(await api.trasladar(detalle.id, datos))
+      onTrasladado(await api.trasladar(detalle.id, datos, detalle.version))
     } catch (e) {
+      if (e instanceof ErrorApi && e.estado === ESTADO_CAMBIO_AJENO) onCambioAjeno()
       const { porCampo, general } = erroresDelServidor(e)
       setErrores(porCampo)
       setErrorGeneral(

@@ -201,8 +201,11 @@ def abrir_sesion(
     return token
 
 
-def sesion_vigente(token: str) -> Acceso | None:
+def sesion_vigente(token: str, *, renovar: bool = True) -> Acceso | None:
     """De quién es la sesión, o None si no vale.
+
+    Con ``renovar=False`` no cuenta como actividad: es para lo que el visor pide
+    solo, sin que nadie esté usándolo.
 
     Consulta la base: llamarla desde un hilo, no desde el bucle de eventos. Las
     teselas de un plano llegan de a muchas a la vez: con sentencias directas no
@@ -225,7 +228,7 @@ def sesion_vigente(token: str) -> Acceso | None:
             bd.execute(delete(SesionAcceso).where(esta_sesion))
             bd.commit()
             return None
-        if ahora - fila.ultimo_uso >= _ANOTAR_USO_CADA:
+        if renovar and ahora - fila.ultimo_uso >= _ANOTAR_USO_CADA:
             bd.execute(update(SesionAcceso).where(esta_sesion).values(ultimo_uso=ahora))
             bd.commit()
         return acceso

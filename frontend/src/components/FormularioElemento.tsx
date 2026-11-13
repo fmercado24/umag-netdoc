@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { api } from '../api/cliente'
+import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from '../api/cliente'
 import {
   ATRIBUTOS_AUTOMATICOS,
   Campo,
@@ -87,6 +87,8 @@ interface Props {
   enumeraciones: Enumeraciones | null
   onCancelar: () => void
   onGuardado: (actualizado: ElementoDetalle) => void
+  /** Otra persona lo modificó mientras se editaba: la API no guardó nada. */
+  onCambioAjeno: () => void
 }
 
 export function FormularioElemento({
@@ -95,6 +97,7 @@ export function FormularioElemento({
   enumeraciones,
   onCancelar,
   onGuardado,
+  onCambioAjeno,
 }: Props) {
   const inicialBase = useMemo(
     () =>
@@ -299,13 +302,18 @@ export function FormularioElemento({
 
     setGuardando(true)
     try {
-      const actualizado = await api.actualizarElemento(detalle.id, {
-        ...cambios,
-        ...(comentario.trim() ? { comentario: comentario.trim() } : {}),
-        ...(usuario.trim() ? { usuario: usuario.trim() } : {}),
-      })
+      const actualizado = await api.actualizarElemento(
+        detalle.id,
+        {
+          ...cambios,
+          ...(comentario.trim() ? { comentario: comentario.trim() } : {}),
+          ...(usuario.trim() ? { usuario: usuario.trim() } : {}),
+        },
+        detalle.version,
+      )
       onGuardado(actualizado)
     } catch (e) {
+      if (e instanceof ErrorApi && e.estado === ESTADO_CAMBIO_AJENO) onCambioAjeno()
       const { porCampo, general } = erroresDelServidor(e)
       setErrores(porCampo)
       setErrorGeneral(

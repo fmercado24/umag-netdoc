@@ -12,6 +12,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.v1.router import router_v1
 from app.core.config import configuracion
@@ -57,6 +59,32 @@ async def datos_invalidos(_: Request, error: RequestValidationError) -> Response
     un carácter inválido en ella reventaría la respuesta (json.dumps sí lo admite)."""
     detalle = [{k: e[k] for k in ("type", "loc", "msg")} for e in error.errors()]
     return Response(json.dumps({"detail": detalle}), 422, media_type="application/json")
+
+
+# Las escrituras van de a una (app.db.session), así que estos casos no deberían
+# darse entre peticiones; quedan para lo que escriba por fuera de la API, como una
+# importación en curso. En vez de un error interno, algo que se pueda entender.
+@app.exception_handler(IntegrityError)
+@app.exception_handler(StaleDataError)
+async def cambio_simultaneo(_: Request, error: Exception) -> Response:
+    registro.warning("Cambio simultáneo rechazado: %s", str(error).splitlines()[0][:200])
+    return JSONResponse(
+        {"detail": "Otra persona acaba de registrar o cambiar lo mismo. Revisa cómo quedó y vuelve a intentarlo."},
+        status_code=409,
+    )
+
+
+@app.exception_handler(OperationalError)
+async def base_ocupada(_: Request, error: OperationalError) -> Response:
+    texto = str(error.orig).lower()
+    if "locked" not in texto and "lock timeout" not in texto and "lock_timeout" not in texto:
+        raise error
+    registro.warning("Sin turno para escribir tras la espera: %s", texto[:200])
+    return JSONResponse(
+        {"detail": "NetDoc está ocupado con otro cambio. Vuelve a intentarlo en unos segundos."},
+        status_code=503,
+        headers={"Retry-After": "5"},
+    )
 
 
 # Planos y fotografías de evidencia.

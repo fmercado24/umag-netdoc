@@ -27,6 +27,7 @@ backend/certs/
 backend/media/planos/*
 backend/media/fotografias/*
 backend/media/teselas/
+backend/media/pendientes/
 !backend/media/planos/.gitkeep
 !backend/media/fotografias/.gitkeep
 

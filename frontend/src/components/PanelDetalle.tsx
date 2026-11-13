@@ -48,6 +48,12 @@ interface Props {
   onTrasladado: (trasladado: ElementoDetalle) => void
   onEliminado: (eliminado: ElementoDetalle) => void
   onRestaurar: () => void
+  /** Otra persona lo modificó: hay una versión más nueva que la que se muestra. */
+  hayVersionNueva: boolean
+  /** Muestra esa versión. */
+  onVerVersionNueva: () => void
+  /** Un cambio fue rechazado porque otra persona lo modificó antes: hay que ir a buscarla. */
+  onCambioAjeno: () => void
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: ReactNode }) {
@@ -125,6 +131,9 @@ export function PanelDetalle({
   onTrasladado,
   onEliminado,
   onRestaurar,
+  hayVersionNueva,
+  onVerVersionNueva,
+  onCambioAjeno,
 }: Props) {
   const [verHistorial, setVerHistorial] = useState(false)
   const [modo, setModo] = useState<'ficha' | 'editar' | 'trasladar' | 'eliminar'>('ficha')
@@ -154,6 +163,13 @@ export function PanelDetalle({
 
   const alternarHistorial = () => setVerHistorial((v) => !v)
 
+  // Lo que cambió otra persona se muestra enseguida, salvo que aquí se esté
+  // escribiendo: entonces se avisa, para no borrar lo escrito sin preguntar.
+  // onVerVersionNueva queda fuera de las dependencias: cambia en cada render.
+  useEffect(() => {
+    if (hayVersionNueva && modo === 'ficha') onVerVersionNueva()
+  }, [hayVersionNueva, modo])
+
   return (
     <section className="panel-detalle">
       <header className="detalle__cabecera">
@@ -174,12 +190,24 @@ export function PanelDetalle({
         </div>
       </header>
 
+      {hayVersionNueva && modo !== 'ficha' && (
+        <div className="aviso aviso--cambio" role="alert">
+          <strong>Otra persona modificó este elemento mientras lo tenías abierto.</strong>
+          <span>
+            Lo que escribiste aquí no se guardó.{' '}
+            <button type="button" className="boton-enlace" onClick={() => setModo('ficha')}>
+              Ver cómo quedó
+            </button>
+          </span>
+        </div>
+      )}
       {modo === 'editar' && (
         <FormularioElemento
           detalle={detalle}
           ficha={ficha}
           enumeraciones={enumeraciones}
           onCancelar={() => setModo('ficha')}
+          onCambioAjeno={onCambioAjeno}
           onGuardado={(actualizado) => {
             setModo('ficha')
             onGuardado(actualizado)
@@ -191,6 +219,7 @@ export function PanelDetalle({
           detalle={detalle}
           pisos={pisos}
           onCancelar={() => setModo('ficha')}
+          onCambioAjeno={onCambioAjeno}
           onTrasladado={(trasladado) => {
             setModo('ficha')
             onTrasladado(trasladado)
@@ -201,6 +230,7 @@ export function PanelDetalle({
         <ConfirmarEliminacion
           detalle={detalle}
           onCancelar={() => setModo('ficha')}
+          onCambioAjeno={onCambioAjeno}
           onEliminado={onEliminado}
         />
       )}

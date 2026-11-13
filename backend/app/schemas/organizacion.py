@@ -137,3 +137,58 @@ class PlanoCrear(BaseModel):
     alto_px: int = Field(gt=0)
     version: str | None = None
     notas: str | None = None
+
+
+class EjemploLamina(BaseModel):
+    nombre: str
+    destino: str
+
+
+class RevisionLamina(BaseModel):
+    """Lo que dice el nombre de un archivo, antes de subirlo."""
+
+    archivo: str
+    #: Nombre con que se guardará; nulo si se rechaza.
+    nombre: str | None = None
+    piso: str | None = None
+    tramo: str | None = None
+    destino: str | None = None
+    #: Por qué se rechaza; nulo si se acepta.
+    error: str | None = None
+    #: El nombre que debería tener, si se pudo deducir del original.
+    sugerencia: str | None = None
+
+
+class LaminaPendiente(BaseModel):
+    """Un plano subido que espera a confirmarse."""
+
+    nombre: str
+    piso: str
+    tramo: str | None = None
+    destino: str
+    ancho_px: int
+    alto_px: int
+    bytes: int
+
+
+class CargaDePlanos(BaseModel):
+    """Si se pueden cargar planos desde el visor, cómo deben llamarse y los que esperan."""
+
+    edificio: str
+    #: Solo un edificio sin planos ni elementos.
+    permitida: bool
+    #: Por qué no, si no se puede.
+    motivo: str | None = None
+    nomenclatura: str
+    ejemplos: list[EjemploLamina]
+    #: El nombre de un edificio con un solo plano.
+    unico: str
+    pendientes: list[LaminaPendiente] = []
+    #: La revisión de los nombres pedidos en ``?archivo=``.
+    revisados: list[RevisionLamina] = []
+
+
+class CargaConfirmada(BaseModel):
+    pisos: list[str]
+    tramos: list[str]
+    planos: list[PlanoLeer]

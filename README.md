@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           478 pruebas (pytest)
+│   └── tests/           532 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -224,6 +224,31 @@ cd backend
 
 ## Cargar el plano de un piso
 
+### Desde el visor, en un edificio vacío
+
+Al elegir un edificio sin planos ni elementos, el visor ofrece **Cargar planos**. Se
+eligen los archivos SVG, uno por piso o por tramo, y **el nombre de cada uno dice dónde
+va**, con la nomenclatura de las láminas: `ing-p01-t1.svg` es el tramo 1 del piso 1,
+`ing-p02.svg` el piso 2 completo y `ing-p00.svg` el subterráneo. Si el edificio tiene un
+único plano, se llama `ing-p01.svg`. El panel muestra los nombres que corresponden a ese
+edificio.
+
+- **Lo mal nombrado se rechaza antes de subirlo**, con el motivo: no sigue la
+  nomenclatura, es de otro edificio o no es SVG. Si el nombre correcto se puede deducir
+  («ing 3er piso.svg»), dice cómo debe llamarse.
+- **Los aceptados quedan en espera**, con su piso, tramo y tamaño, y se pueden quitar.
+  Cada uno se sube por separado, así que un edificio grande no choca con el límite de
+  tamaño de un envío.
+- **Al confirmar**, se crean de una vez los pisos y tramos que nombran, y los planos
+  quedan vigentes. Mientras se generan las teselas, el visor muestra la lámina original.
+
+Desde ahí el edificio ya no está vacío: los planos que falten o sus versiones nuevas se
+cargan desde la terminal, como se explica abajo, donde se ve qué pasa con lo ya ubicado.
+Los números de sala de las láminas (OCR) se leen aparte, con
+[`extraer_recintos`](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
+
+### Con la API o desde la terminal
+
 El visor necesita un plano para poder posicionar elementos. Las dimensiones se
 indican explícitamente porque **fijan el sistema de coordenadas**: las
 posiciones de los elementos se guardan en esas unidades y sobreviven a que el
@@ -380,6 +405,31 @@ un equipo vuelve cuando su rack ya no está o cambió de lugar, queda sin rack y
 Lo agregado queda en la base, no en las planillas de `data/`. `iniciar.sh` nunca lo toca,
 pero `importar_edificio --recargar` reemplaza todo el edificio, y lo borraría.
 
+## Varias personas a la vez
+
+NetDoc se puede usar por varias personas al mismo tiempo, cada una con su cuenta o
+compartiendo una:
+
+- **Nadie pisa sin aviso el cambio de otra persona.** Cada elemento lleva una versión
+  que sube con cada cambio. Si dos personas lo tienen abierto y una guarda, a la otra se
+  le avisa al guardar que el elemento cambió, quién lo modificó, y se le muestra cómo
+  quedó: su cambio no se aplica encima. Vale para editar, ubicar, trasladar, eliminar y
+  restaurar.
+- **Se ve lo que hacen las demás.** Mientras se usa, el visor pregunta cada 15 segundos
+  si algo cambió en el edificio y, solo entonces, actualiza el plano, la lista y la
+  ficha abierta. Si en ese momento se está editando, avisa en vez de borrar lo escrito.
+  Tras cinco minutos sin usar el visor deja de preguntar, y esa consulta no cuenta como
+  actividad: la sesión sigue venciendo por inactividad.
+- **Dos altas simultáneas no reciben el mismo código.** Las peticiones que escriben se
+  atienden de a una, y la respuesta llega cuando el cambio ya está guardado.
+- **El historial dice quién.** Si no se escribe un nombre en «Registrado por», queda la
+  cuenta con que se ingresó.
+
+Con los datos del CADI (392 elementos), ocho personas consultando el plano a la vez lo
+reciben en unos 60 ms, y el servidor atiende unas 130 consultas por segundo con SQLite:
+sobra para el equipo de la DSI. Detalle en
+[docs/seguridad.md](docs/seguridad.md#varias-personas-a-la-vez).
+
 ## Editar los datos de un elemento
 
 En la ficha del visor, **Editar** abre un formulario con la etiqueta, el estado,
@@ -428,11 +478,14 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `GET` | `/api/v1/edificios` | Catálogo de edificios (SOP §8.2) |
 | `POST` | `/api/v1/edificios/{cod}/pisos/{piso}/plano` | Carga el plano vigente del piso o, con `tramo`, de uno de sus tramos |
 | `GET` | `/api/v1/edificios/{cod}/pisos/{piso}/recintos` | Recintos de las láminas del piso (número, nombre y dónde se ubican sus elementos) |
+| `GET` | `/api/v1/edificios/{codigo}/carga-de-planos?archivo=` | Si el edificio está vacío y se le pueden cargar planos, cómo deben llamarse y los que esperan; con `archivo`, revisa esos nombres |
+| `POST` | `/api/v1/edificios/{codigo}/carga-de-planos` | Sube un plano a la espera, revisado (nombre, SVG, tamaño). `DELETE …/carga-de-planos/{archivo}` lo quita |
+| `POST` | `/api/v1/edificios/{codigo}/carga-de-planos/confirmar` | Crea los pisos y tramos que nombran los planos en espera y los deja vigentes |
 | `GET` | `/api/v1/elementos/mapa?edificio=&piso=&tramo=` | Plano + elementos del piso o del tramo, en una llamada |
 | `GET` | `/api/v1/elementos` | Listado con filtros por tipo, estado, rack y búsqueda libre |
 | `POST` | `/api/v1/elementos` | Alta; genera el código según SOP §8 si no se entrega. Un punto de datos lo toma de `rack_origen` y `puerto` |
 | `GET` | `/api/v1/elementos/proximo-codigo?tipo=&edificio=&piso=` | El código que recibiría un alta, sin crear nada, y si está disponible |
-| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora. Cambiar `numero_recinto` lo lleva a ese recinto. Si cambia `tramo`, `rack_origen` y `puerto`, o `padre_codigo` a un rack de otro tramo, también actualiza el código |
+| `PATCH` | `/api/v1/elementos/{id}` | Actualización parcial con registro en bitácora. Cambiar `numero_recinto` lo lleva a ese recinto. Si cambia `tramo`, `rack_origen` y `puerto`, o `padre_codigo` a un rack de otro tramo, también actualiza el código. Con la cabecera `X-NetDoc-Version` (la `version` que se tenía a la vista) responde `412` si otra persona lo cambió entretanto |
 | `POST` | `/api/v1/elementos/{id}/ubicar-en-recinto` | Lo deja en su recinto (o un rack, sobre su rótulo) según la lámina |
 | `PATCH` | `/api/v1/elementos/{id}/posicion` | Georreferenciación sobre el plano (SOP §10.3) |
 | `GET` | `/api/v1/elementos/{id}/traslado?piso=&tramo=` | Qué pasaría al trasladarlo: código nuevo, lo que viaja con él y lo que se desconecta. No cambia nada |
@@ -492,7 +545,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 478 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 532 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

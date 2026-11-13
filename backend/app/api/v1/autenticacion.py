@@ -7,7 +7,7 @@ import math
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.deps import SesionBD
+from app.api.deps import SesionSimple
 from app.core.config import configuracion
 from app.servicios.autenticacion import (
     Acceso,
@@ -43,7 +43,7 @@ def _plural(cantidad: int, palabra: str) -> str:
 
 
 @router.post("/ingresar", response_model=SesionActiva)
-def ingresar(datos: Credenciales, request: Request, response: Response, bd: SesionBD):
+def ingresar(datos: Credenciales, request: Request, response: Response, bd: SesionSimple):
     try:
         token = autenticar(bd, datos.usuario, datos.clave, identificar_cliente(request))
     except AdministradorSinConfigurar as exc:
@@ -86,7 +86,7 @@ def sesion_actual(request: Request):
 
 
 @router.post("/salir", status_code=status.HTTP_204_NO_CONTENT)
-def salir(request: Request, response: Response, bd: SesionBD):
+def salir(request: Request, response: Response, bd: SesionSimple):
     nombre = nombre_cookie(request)
     cerrar_sesion(bd, request.cookies.get(nombre))
     bd.commit()  # ya invalidada al responder, no después

@@ -54,6 +54,12 @@ class Elemento(Base, MixinTiempos):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    #: Sube en cada cambio. Con ella, quien edita un elemento se entera si otra
+    #: persona lo cambió mientras lo tenía abierto (``api.deps.obtener_para_modificar``),
+    #: y el visor sabe cuándo hay algo nuevo que mostrar.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+
+    __mapper_args__ = {"version_id_col": version}
 
     # --- Identificación (SOP sección 8) ---------------------------------
     codigo: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)

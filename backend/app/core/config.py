@@ -49,6 +49,10 @@ class Configuracion(BaseSettings):
     #: navegador hable con un solo origen.
     dir_visor: Path = DIR_PROYECTO / "frontend" / "dist"
 
+    #: Con SQLite, cuántas peticiones trabajan con la base a la vez (ver
+    #: app.db.session): más de una la vuelve más lenta, no más rápida.
+    sqlite_a_la_vez: int = 1
+
     #: Tamaño máximo de un plano o fotografía que se carga por la API.
     carga_max_mb: int = 100
 
@@ -109,6 +113,12 @@ class Configuracion(BaseSettings):
     @property
     def dir_fotografias(self) -> Path:
         return self.dir_media / "fotografias"
+
+    @property
+    def dir_planos_pendientes(self) -> Path:
+        """Planos subidos desde el visor que esperan a confirmarse
+        (``app.servicios.carga_planos``). No se sirven en ``/media``."""
+        return self.dir_media / "pendientes"
 
     @property
     def es_sqlite(self) -> bool:

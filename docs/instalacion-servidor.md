@@ -56,8 +56,9 @@ flowchart LR
 | Respaldo | `sudo netdoc respaldar` | `sudo netdoc respaldar`, o las herramientas que ya use la DSI |
 | Conviene si | Un solo servidor y pocas personas editando a la vez, como en NetDoc | La DSI ya administra PostgreSQL, o la base debe estar en otro servidor o crecer con más procesos |
 
-Para NetDoc, con unos pocos usuarios, **SQLite alcanza**, y es lo más simple de operar.
-La elección no es definitiva (sección 10.2).
+Para NetDoc, con el equipo de la DSI trabajando a la vez, **SQLite alcanza**, y es lo más
+simple de operar: con los datos del CADI atiende unas 130 consultas por segundo, y las
+escrituras, que van de a una, toman milisegundos. La elección no es definitiva (sección 10.2).
 
 ## 4. Instalar
 

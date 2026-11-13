@@ -56,6 +56,13 @@ def _a_texto(valor: Any) -> str | None:
     return str(valor)
 
 
+def _quien(sesion: Session, usuario: str | None) -> str | None:
+    """El nombre que se escribió en «Registrado por» o, si no, la cuenta con que
+    se ingresó (la deja ``api.deps`` en la sesión)."""
+    acceso = sesion.info.get("acceso")
+    return usuario or (acceso.usuario if acceso else None)
+
+
 def registrar_cambios(
     sesion: Session,
     elemento: Elemento,
@@ -71,6 +78,7 @@ def registrar_cambios(
     no modificaba nada.
     """
     entradas: list[HistorialElemento] = []
+    usuario = _quien(sesion, usuario)
 
     for campo, valor_nuevo in cambios.items():
         if campo not in CAMPOS_AUDITADOS:
@@ -110,7 +118,7 @@ def registrar_alta(
         valor_anterior=None,
         valor_nuevo=elemento.codigo,
         origen=origen,
-        usuario=usuario,
+        usuario=_quien(sesion, usuario),
         comentario=comentario or "Alta del elemento en el sistema",
     )
     sesion.add(entrada)

@@ -157,6 +157,7 @@ Table definicion_atributo [headercolor: #7c3aed] {
 
 Table elemento [headercolor: #0f9d58] {
   id integer [pk, increment]
+  version integer [not null, default: `1`]
   codigo varchar(80) [not null, unique]
   correlativo integer
   etiqueta varchar(160)

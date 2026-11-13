@@ -42,11 +42,9 @@ orientación).
 from __future__ import annotations
 
 import argparse
-import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from xml.etree import ElementTree
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -58,6 +56,7 @@ from app.scripts.importar_edificio import DIR_DATA, ubicar_en_recintos
 from app.servicios.planos import (
     NombreLaminaInvalido,
     PlanoRechazado,
+    dimensiones_svg,
     guardar_plano,
     interpretar_nombre_lamina,
     quitar_caracteres_de_control,
@@ -83,19 +82,6 @@ def archivos_de_laminas(carpeta: Path) -> list[Path]:
         and not ruta.name.startswith(".")
         and not ruta.name.endswith(":Zone.Identifier")
     )
-
-
-def dimensiones_svg(contenido: bytes) -> tuple[int, int]:
-    """Ancho y alto del SVG en sus propias unidades (las del ``viewBox``)."""
-    raiz = ElementTree.fromstring(contenido)
-    caja = raiz.get("viewBox")
-    if caja:
-        _, _, ancho, alto = (float(v) for v in re.split(r"[\s,]+", caja.strip()))
-    else:
-        ancho, alto = float(raiz.get("width", 0)), float(raiz.get("height", 0))
-    if ancho <= 0 or alto <= 0:
-        raise ValueError("el SVG no declara viewBox ni width/height")
-    return round(ancho), round(alto)
 
 
 @dataclass

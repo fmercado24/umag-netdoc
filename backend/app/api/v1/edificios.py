@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -24,9 +27,12 @@ from app.api.deps import (
 from app.core.config import DIR_PROYECTO
 from app.models import Edificio, OrigenCambio, Piso, Tramo
 from app.schemas.organizacion import (
+    CargaConfirmada,
+    CargaDePlanos,
     EdificioCrear,
     EdificioDetalle,
     EdificioLeer,
+    LaminaPendiente,
     PisoCrear,
     PisoLeer,
     PlanoLeer,
@@ -34,6 +40,8 @@ from app.schemas.organizacion import (
     TramoCrear,
     TramoLeer,
 )
+from app.servicios import carga_planos
+from app.servicios.novedades import marca_del_edificio
 from app.servicios.planos import (
     FormatoNoAdmitido,
     NombreLaminaInvalido,
@@ -73,6 +81,18 @@ def crear_edificio(datos: EdificioCrear, sesion: SesionBD):
 @router.get("/{codigo}", response_model=EdificioDetalle)
 def obtener_edificio_detalle(codigo: str, sesion: SesionBD):
     return obtener_edificio(sesion, codigo)
+
+
+@router.get("/{codigo}/novedades")
+def novedades(codigo: str, sesion: SesionBD) -> dict:
+    """Una marca que cambia cuando cambia algo del edificio.
+
+    El visor la consulta cada pocos segundos para mostrar lo que hacen las demás
+    personas: es barata, y solo si no es la que vino con el plano vuelve a pedirlo,
+    junto con la ficha abierta. No cuenta como actividad de la sesión
+    (``servicios.proteccion``).
+    """
+    return {"marca": marca_del_edificio(sesion, obtener_edificio(sesion, codigo))}
 
 
 @router.get("/{codigo}/pisos", response_model=list[PisoLeer])
@@ -136,6 +156,92 @@ def obtener_plano(codigo: str, codigo_piso: str, sesion: SesionBD, tramo: str | 
             f"'{ubicacion}' aún no tiene un plano vigente cargado",
         )
     return plano
+
+
+# --- Planos de un edificio vacío, desde el visor (app.servicios.carga_planos) ---
+
+
+def _estado_de_carga(sesion, edificio: Edificio, revisar: list[str] | None = None) -> CargaDePlanos:
+    motivo = carga_planos.motivo_para_no_cargar(sesion, edificio)
+    return CargaDePlanos(
+        edificio=edificio.codigo,
+        permitida=motivo is None,
+        motivo=motivo,
+        **carga_planos.ejemplos(edificio),
+        pendientes=[asdict(p) for p in carga_planos.listar(edificio)] if motivo is None else [],
+        revisados=[asdict(carga_planos.revisar(edificio, n)) for n in (revisar or [])],
+    )
+
+
+@router.get("/{codigo}/carga-de-planos", response_model=CargaDePlanos)
+def estado_carga_de_planos(
+    codigo: str,
+    sesion: SesionBD,
+    archivo: list[str] = Query(default=[], max_length=200, description="Nombres de archivo a revisar"),
+):
+    """Si el edificio está vacío (sin planos ni elementos), cómo deben llamarse sus
+    planos y los que ya esperan a confirmarse. Con ``archivo`` revisa esos nombres
+    antes de subirlos."""
+    return _estado_de_carga(sesion, obtener_edificio(sesion, codigo), archivo)
+
+
+@router.post(
+    "/{codigo}/carga-de-planos",
+    response_model=LaminaPendiente,
+    status_code=status.HTTP_201_CREATED,
+)
+def subir_plano_pendiente(
+    codigo: str,
+    sesion: SesionBD,
+    archivo: UploadFile = File(..., description="Lámina SVG con nombre <edificio>-p<piso>[-t<tramo>].svg"),
+):
+    """Sube un plano y lo deja en espera, revisado. Subir otra vez el mismo nombre lo
+    reemplaza. Nada queda vigente hasta confirmar."""
+    edificio = obtener_edificio(sesion, codigo)
+    try:
+        return asdict(
+            carga_planos.agregar(sesion, edificio, archivo.filename or "plano", archivo.file.read())
+        )
+    except carga_planos.CargaNoPermitida as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except FormatoNoAdmitido as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+    except (SvgInvalido, NombreLaminaInvalido) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
+@router.delete("/{codigo}/carga-de-planos/{archivo}", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_plano_pendiente(codigo: str, archivo: str, sesion: SesionBD):
+    """Saca un plano de la espera."""
+    edificio = obtener_edificio(sesion, codigo)
+    if not carga_planos.quitar(edificio, archivo):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"«{archivo}» no está en espera")
+
+
+@router.post("/{codigo}/carga-de-planos/confirmar", response_model=CargaConfirmada)
+def confirmar_carga_de_planos(codigo: str, sesion: SesionBD, tareas: BackgroundTasks):
+    """Crea los pisos y tramos que nombran los planos en espera y los deja vigentes.
+
+    Las teselas se generan después de responder: mientras tanto el visor muestra
+    la lámina original.
+    """
+    edificio = obtener_edificio(sesion, codigo)
+    try:
+        resultado = carga_planos.confirmar(sesion, edificio)
+    except carga_planos.CargaNoPermitida as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (FormatoNoAdmitido, SvgInvalido, NombreLaminaInvalido) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    sesion.flush()
+    # Las tareas corren cuando la respuesta ya salió y lo nuevo quedó guardado.
+    tareas.add_task(carga_planos.descartar_todo, edificio.codigo)
+    for plano in resultado.planos:
+        tareas.add_task(asegurar_teselas, plano.archivo, plano.ancho_px)
+    return CargaConfirmada(
+        pisos=resultado.pisos,
+        tramos=resultado.tramos,
+        planos=[PlanoLeer.model_validate(p) for p in resultado.planos],
+    )
 
 
 @router.get("/{codigo}/pisos/{codigo_piso}/recintos", response_model=list[RecintoLeer])
