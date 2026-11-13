@@ -309,15 +309,23 @@ export interface RevisionLamina {
 
 export interface CargaDePlanos {
   edificio: string
-  /** Solo en un edificio sin planos ni elementos. */
+  /** Solo mientras el edificio no tenga elementos. */
   permitida: boolean
   motivo: string | null
   nomenclatura: string
   ejemplos: { nombre: string; destino: string }[]
   /** Cómo se llama el plano de un edificio que tiene uno solo. */
   unico: string
+  /** Los planos vigentes del edificio. */
+  cargados: { destino: string; archivo: string; ancho_px: number; alto_px: number }[]
   pendientes: LaminaPendiente[]
   revisados: RevisionLamina[]
+}
+
+export interface PlanosQuitados {
+  planos: number
+  tramos: number
+  pisos: string[]
 }
 
 export interface CargaConfirmada {

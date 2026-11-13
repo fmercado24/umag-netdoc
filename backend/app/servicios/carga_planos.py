@@ -1,9 +1,10 @@
-"""Cargar los planos de un edificio vacío desde el visor.
+"""Cargar y quitar los planos de un edificio desde el visor, mientras no tenga elementos.
 
-Solo para un edificio sin planos ni elementos: es el primer paso para empezar a
-documentarlo. Lo que ya tiene planos se actualiza desde la terminal
-(``app.scripts.cargar_planos``), donde se ve qué pasa con los elementos ya
-ubicados sobre la versión anterior.
+Es el primer paso para empezar a documentarlo. Sin elementos, nada depende
+todavía de los planos, así que se pueden agregar los que falten o quitarlos
+todos para empezar de nuevo. Con el primer elemento se cierra: desde ahí los
+planos se actualizan desde la terminal (``app.scripts.cargar_planos``), donde se
+ve qué pasa con lo ya ubicado sobre la versión anterior.
 
 Los planos de un edificio grande no caben en un solo envío (los del CADI suman
 unos 150 MB), así que se hace en dos pasos:
@@ -13,12 +14,17 @@ unos 150 MB), así que se hace en dos pasos:
    al recibirlo: el nombre (que dice el piso y el tramo), que sea un SVG válido
    y que declare su tamaño. Subir otra vez el mismo nombre lo reemplaza.
 2. **Al confirmar**, se crean de una vez los pisos y tramos que nombran, y los
-   planos quedan vigentes. Desde ahí el edificio ya no está vacío.
+   planos quedan vigentes. Un piso o tramo que ya tiene plano no se reemplaza:
+   para cambiarlo se quitan todos y se vuelven a cargar.
+
+**Quitar los planos** borra los planos, los tramos y los pisos del edificio, y
+lo deja como antes de cargarlos.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict, dataclass
 
 from sqlalchemy import func, select
@@ -38,6 +44,7 @@ from app.servicios.planos import (
     nombre_lamina,
     sanear_svg,
 )
+from app.servicios.teselas import dir_teselas
 
 #: Los mismos nombres que pone el importador a los pisos que crea.
 NOMBRES_PISO = {
@@ -52,7 +59,7 @@ NOMBRES_PISO = {
 
 
 class CargaNoPermitida(Exception):
-    """El edificio ya tiene planos o elementos."""
+    """El edificio ya tiene elementos, o lo pedido no corresponde."""
 
 
 @dataclass(frozen=True)
@@ -94,24 +101,46 @@ def describir_destino(piso: str, tramo: str | None) -> str:
 
 
 def motivo_para_no_cargar(sesion: Session, edificio: Edificio) -> str | None:
-    """Por qué no se pueden cargar planos desde el visor, o None si se puede."""
+    """Por qué no se pueden cargar ni quitar planos desde el visor, o None si se puede.
+
+    Cuenta también los elementos eliminados: siguen siendo del edificio y se
+    pueden restaurar.
+    """
     elementos = sesion.scalar(
         select(func.count(Elemento.id)).where(Elemento.edificio_id == edificio.id)
     )
-    planos = sesion.scalar(
-        select(func.count(Plano.id)).join(Piso).where(Piso.edificio_id == edificio.id)
-    )
-    if not elementos and not planos:
+    if not elementos:
         return None
-    tiene = " y ".join(
-        texto
-        for cantidad, texto in ((planos, f"{planos} plano(s)"), (elementos, f"{elementos} elemento(s)"))
-        if cantidad
-    )
     return (
-        f"{edificio.codigo} ya tiene {tiene}: desde el visor solo se cargan los planos de un "
-        "edificio vacío. Para agregar o reemplazar planos, use app.scripts.cargar_planos "
-        "(guía de edificio nuevo, sección 4)."
+        f"{edificio.codigo} ya tiene {elementos} elemento(s): desde el visor los planos solo se "
+        "cargan o quitan mientras el edificio no tenga elementos. Para agregar o reemplazar "
+        "planos, use app.scripts.cargar_planos (guía de edificio nuevo, sección 4)."
+    )
+
+
+def planos_vigentes(sesion: Session, edificio: Edificio) -> list[Plano]:
+    return list(
+        sesion.scalars(
+            select(Plano)
+            .join(Piso)
+            .where(Piso.edificio_id == edificio.id, Plano.vigente.is_(True))
+            .order_by(Piso.orden, Piso.codigo, Plano.tramo_id)
+        )
+    )
+
+
+def _ya_cargado(sesion: Session, edificio: Edificio, lamina: NombreLamina) -> bool:
+    for plano in planos_vigentes(sesion, edificio):
+        tramo = plano.tramo.codigo if plano.tramo else None
+        if plano.piso.codigo == lamina.piso and tramo == lamina.tramo:
+            return True
+    return False
+
+
+def _mensaje_ya_cargado(archivo: str, lamina: NombreLamina) -> str:
+    return (
+        f"«{archivo}»: {describir_destino(lamina.piso, lamina.tramo).lower()} ya tiene plano. "
+        "Para cambiarlo, quite los planos cargados y vuelva a cargarlos."
     )
 
 
@@ -169,7 +198,7 @@ def _interpretar(edificio: Edificio, archivo: str) -> NombreLamina:
     return lamina
 
 
-def revisar(edificio: Edificio, archivo: str) -> Revision:
+def revisar(sesion: Session, edificio: Edificio, archivo: str) -> Revision:
     try:
         lamina = _interpretar(edificio, archivo)
     except NombreLaminaInvalido as exc:
@@ -178,6 +207,8 @@ def revisar(edificio: Edificio, archivo: str) -> Revision:
         return Revision(archivo, error=str(exc))
     except FormatoNoAdmitido as exc:
         return Revision(archivo, error=str(exc))
+    if _ya_cargado(sesion, edificio, lamina):
+        return Revision(archivo, error=_mensaje_ya_cargado(archivo, lamina))
     return Revision(
         archivo,
         nombre=nombre_lamina(edificio.codigo, lamina.piso, lamina.tramo),
@@ -211,6 +242,8 @@ def agregar(sesion: Session, edificio: Edificio, archivo: str, contenido: bytes)
     ``NombreLaminaInvalido``, ``FormatoNoAdmitido`` o ``SvgInvalido``."""
     exigir_vacio(sesion, edificio)
     lamina = _interpretar(edificio, archivo)
+    if _ya_cargado(sesion, edificio, lamina):
+        raise CargaNoPermitida(_mensaje_ya_cargado(archivo, lamina))
     contenido = sanear_svg(contenido)
     try:
         ancho, alto = dimensiones_svg(contenido)
@@ -283,6 +316,12 @@ def confirmar(sesion: Session, edificio: Edificio) -> Resultado:
     pisos: dict[str, Piso] = {
         p.codigo: p for p in sesion.scalars(select(Piso).where(Piso.edificio_id == edificio.id))
     }
+    # Otra persona pudo cargar el mismo piso o tramo mientras estaba en espera.
+    for pendiente in pendientes:
+        lamina = interpretar_nombre_lamina(pendiente.nombre, edificio=edificio.codigo)
+        if _ya_cargado(sesion, edificio, lamina):
+            raise CargaNoPermitida(_mensaje_ya_cargado(pendiente.nombre, lamina) + " Quítelo de la espera.")
+
     resultado = Resultado(pisos=[], tramos=[], planos=[])
     for pendiente in pendientes:
         piso = pisos.get(pendiente.piso)
@@ -318,3 +357,59 @@ def confirmar(sesion: Session, edificio: Edificio) -> Resultado:
             )
         )
     return resultado
+
+
+@dataclass
+class Quitados:
+    planos: int
+    tramos: int
+    pisos: list[str]
+    #: Los archivos de los planos (``planos/…``), para borrarlos con sus teselas
+    #: cuando lo anterior ya quedó guardado.
+    archivos: list[str]
+
+
+def quitar_planos(sesion: Session, edificio: Edificio, confirmacion: str) -> Quitados:
+    """Borra los planos, los tramos y los pisos de un edificio sin elementos.
+
+    ``confirmacion`` debe ser el código del edificio: lo escribe quien lo pide,
+    para que no se haga por un clic distraído ni por error de otro programa.
+    """
+    if confirmacion.strip().upper() != edificio.codigo:
+        raise ConfirmacionIncorrecta(
+            f"Para quitar los planos, escriba el código del edificio: {edificio.codigo}"
+        )
+    exigir_vacio(sesion, edificio)
+    pisos = list(sesion.scalars(select(Piso).where(Piso.edificio_id == edificio.id)))
+    planos = [plano for piso in pisos for plano in piso.planos]
+    if not planos:
+        raise CargaNoPermitida(f"{edificio.codigo} no tiene planos que quitar.")
+    quitados = Quitados(
+        planos=len(planos),
+        tramos=sum(len(piso.tramos) for piso in pisos),
+        pisos=sorted(piso.codigo for piso in pisos),
+        archivos=[plano.archivo for plano in planos],
+    )
+    # Los tramos, los planos y sus recintos se van con su piso.
+    for piso in pisos:
+        sesion.delete(piso)
+    sesion.flush()
+    return quitados
+
+
+class ConfirmacionIncorrecta(CargaNoPermitida):
+    """No se escribió el código del edificio para confirmar."""
+
+
+def borrar_archivos(archivos: list[str]) -> None:
+    """Los archivos de los planos quitados y sus teselas. Se llama después de
+    guardar: si algo fallara antes, la base seguiría apuntando a ellos."""
+    raiz = configuracion.dir_media.resolve()
+    for archivo in archivos:
+        ruta = (configuracion.dir_media / archivo).resolve()
+        if not ruta.is_relative_to(raiz / "planos"):
+            continue
+        ruta.unlink(missing_ok=True)
+        teselas = dir_teselas(archivo)
+        if teselas.is_dir() and teselas.resolve().is_relative_to(raiz / "teselas"):
+            shutil.rmtree(teselas, ignore_errors=True)

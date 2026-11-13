@@ -1426,6 +1426,20 @@ code {
   font-weight: 600;
 }
 
+/* Quitar los planos: cada confirmación, en su recuadro. */
+.confirmar-quitar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radio);
+  background: var(--error-suave);
+  color: var(--error);
+  font-size: 13px;
+}
+
 /* El input queda dentro del botón: se ve el botón y se abre el selector. */
 .selector-archivos {
   position: relative;

@@ -1,10 +1,13 @@
 /**
- * Carga de los planos de un edificio vacío (sin planos ni elementos).
+ * Planos de un edificio sin elementos: cargarlos, agregar los que falten o
+ * quitarlos todos para empezar de nuevo.
  *
  * Cada archivo debe llamarse según la nomenclatura: su nombre dice a qué piso y
  * tramo va. Se revisa antes de subirlo y, si no la sigue, se rechaza y se dice
  * cómo debería llamarse. Los aceptados quedan en espera; al confirmar se crean de
  * una vez los pisos y tramos que nombran (ver backend/app/servicios/carga_planos.py).
+ * Quitar los planos pide confirmarlo dos veces; la segunda, escribiendo el código
+ * del edificio.
  */
 
 import { useEffect, useState } from 'react'
@@ -12,13 +15,17 @@ import type { ChangeEvent } from 'react'
 
 import { api } from '../api/cliente'
 import { erroresDelServidor } from './camposFormulario'
-import type { CargaConfirmada, CargaDePlanos as Estado } from '../types'
+import type { CargaConfirmada, CargaDePlanos as Estado, PlanosQuitados } from '../types'
 
 interface Props {
   edificio: string
   onCerrar: () => void
   onConfirmada: (resultado: CargaConfirmada) => void
+  onQuitados: (resultado: PlanosQuitados) => void
 }
+
+/** Quitar los planos: sin preguntar, primera confirmación, segunda confirmación. */
+type PasoQuitar = 'no' | 'primera' | 'segunda'
 
 /** Lo que pasó con cada archivo de la última selección. */
 interface Fila {
@@ -32,8 +39,10 @@ interface Fila {
 const tamano = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`
 
-export function CargaDePlanos({ edificio, onCerrar, onConfirmada }: Props) {
+export function CargaDePlanos({ edificio, onCerrar, onConfirmada, onQuitados }: Props) {
   const [estado, setEstado] = useState<Estado | null>(null)
+  const [pasoQuitar, setPasoQuitar] = useState<PasoQuitar>('no')
+  const [codigoEscrito, setCodigoEscrito] = useState('')
   const [filas, setFilas] = useState<Fila[]>([])
   const [ocupado, setOcupado] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +115,26 @@ export function CargaDePlanos({ edificio, onCerrar, onConfirmada }: Props) {
   const pisosNuevos = [...new Set(pendientes.map((p) => p.piso))]
   const tramosNuevos = pendientes.filter((p) => p.tramo).map((p) => `${p.piso}-${p.tramo}`)
 
+  const cancelarQuitar = () => {
+    setPasoQuitar('no')
+    setCodigoEscrito('')
+  }
+
+  const quitarTodo = () => {
+    setError(null)
+    setOcupado(true)
+    api
+      .quitarPlanos(edificio, codigoEscrito.trim())
+      .then(onQuitados)
+      .catch((e) => {
+        setError(erroresDelServidor(e).general)
+        void recargar()
+      })
+      .finally(() => setOcupado(false))
+  }
+
+  const cargados = estado?.cargados ?? []
+
   const confirmar = () => {
     setError(null)
     setOcupado(true)
@@ -124,7 +153,9 @@ export function CargaDePlanos({ edificio, onCerrar, onConfirmada }: Props) {
       <header className="detalle__cabecera">
         <div>
           <span className="detalle__tipo">Edificio {edificio}</span>
-          <h2 className="detalle__titulo">Cargar planos</h2>
+          <h2 className="detalle__titulo">
+            {cargados.length > 0 ? 'Planos del edificio' : 'Cargar planos'}
+          </h2>
         </div>
         <div className="detalle__botones">
           <button className="boton-cerrar" onClick={onCerrar} aria-label="Cerrar sin cargar">
@@ -166,9 +197,29 @@ export function CargaDePlanos({ edificio, onCerrar, onConfirmada }: Props) {
             </tbody>
           </table>
 
+          {cargados.length > 0 && (
+            <>
+              <h3 className="subtitulo">Ya cargados ({cargados.length})</h3>
+              <ul className="carga__pendientes">
+                {cargados.map((c) => (
+                  <li key={c.archivo}>
+                    <span className="carga__texto">
+                      <strong>{c.destino}</strong>
+                      <small>
+                        {c.archivo.replace(/^planos\//, '')} · {c.ancho_px} × {c.alto_px}
+                      </small>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
           {estado.permitida && (
             <>
-              <h3 className="subtitulo">Planos</h3>
+              <h3 className="subtitulo">
+                {cargados.length > 0 ? 'Agregar los que faltan' : 'Planos'}
+              </h3>
               <label className="boton boton--secundario selector-archivos">
                 {ocupado ? 'Subiendo…' : 'Elegir archivos SVG…'}
                 <input
@@ -230,11 +281,94 @@ export function CargaDePlanos({ edificio, onCerrar, onConfirmada }: Props) {
                 <p className="formulario__ayuda">
                   Se crearán los pisos {pisosNuevos.join(', ')}
                   {tramosNuevos.length > 0 && ` y los tramos ${tramosNuevos.join(', ')}`}, si aún no
-                  existen. Después, los planos de este edificio se agregan o reemplazan desde la
-                  terminal (guía de edificio nuevo, sección 4).
+                  existen. Mientras el edificio no tenga elementos, se pueden agregar los que falten
+                  o quitarlos todos; con el primer elemento, se cambian desde la terminal (guía de
+                  edificio nuevo, sección 4).
                 </p>
               )}
             </>
+          )}
+
+          {estado.permitida && cargados.length > 0 && (
+            <div className="zona-eliminar">
+              {pasoQuitar === 'no' && (
+                <>
+                  <button
+                    type="button"
+                    className="boton boton--peligro"
+                    onClick={() => setPasoQuitar('primera')}
+                    disabled={ocupado}
+                  >
+                    Quitar los planos cargados
+                  </button>
+                  <small className="nota">
+                    Para empezar de nuevo: el edificio vuelve a quedar vacío. Solo mientras no tenga
+                    elementos.
+                  </small>
+                </>
+              )}
+              {pasoQuitar === 'primera' && (
+                <div className="confirmar-quitar" role="alertdialog" aria-label="Primera confirmación">
+                  <strong>
+                    ¿Quitar {cargados.length === 1 ? 'el plano' : `los ${cargados.length} planos`} de{' '}
+                    {edificio}?
+                  </strong>
+                  <span>
+                    Se borran también sus pisos y tramos, y lo que esté en espera. El edificio queda
+                    como antes de cargarlos.
+                  </span>
+                  <div className="acciones__botones">
+                    <button type="button" className="boton boton--secundario" onClick={cancelarQuitar}>
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className="boton boton--peligro"
+                      onClick={() => setPasoQuitar('segunda')}
+                    >
+                      Sí, quitarlos
+                    </button>
+                  </div>
+                </div>
+              )}
+              {pasoQuitar === 'segunda' && (
+                <div className="confirmar-quitar" role="alertdialog" aria-label="Segunda confirmación">
+                  <strong>Segunda confirmación: no se puede deshacer.</strong>
+                  <span>
+                    Para quitar {cargados.length === 1 ? 'el plano' : `los ${cargados.length} planos`},
+                    escribe el código del edificio, <code>{edificio}</code>.
+                  </span>
+                  <label className="formulario__campo">
+                    <span>Código del edificio</span>
+                    <input
+                      type="text"
+                      value={codigoEscrito}
+                      autoFocus
+                      autoComplete="off"
+                      onChange={(e) => setCodigoEscrito(e.target.value)}
+                    />
+                  </label>
+                  <div className="acciones__botones">
+                    <button
+                      type="button"
+                      className="boton boton--secundario"
+                      onClick={cancelarQuitar}
+                      disabled={ocupado}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className="boton boton--peligro-fuerte"
+                      onClick={quitarTodo}
+                      disabled={ocupado || codigoEscrito.trim().toUpperCase() !== edificio}
+                    >
+                      {ocupado ? 'Quitando…' : 'Quitar definitivamente'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="formulario__acciones">

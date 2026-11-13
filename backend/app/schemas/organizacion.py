@@ -171,11 +171,21 @@ class LaminaPendiente(BaseModel):
     bytes: int
 
 
+class PlanoCargado(BaseModel):
+    """Un plano vigente del edificio."""
+
+    destino: str
+    archivo: str
+    ancho_px: int
+    alto_px: int
+
+
 class CargaDePlanos(BaseModel):
-    """Si se pueden cargar planos desde el visor, cómo deben llamarse y los que esperan."""
+    """Si se pueden cargar o quitar planos desde el visor, cómo deben llamarse, los
+    que ya están y los que esperan."""
 
     edificio: str
-    #: Solo un edificio sin planos ni elementos.
+    #: Solo mientras el edificio no tenga elementos.
     permitida: bool
     #: Por qué no, si no se puede.
     motivo: str | None = None
@@ -183,9 +193,17 @@ class CargaDePlanos(BaseModel):
     ejemplos: list[EjemploLamina]
     #: El nombre de un edificio con un solo plano.
     unico: str
+    #: Los planos vigentes del edificio.
+    cargados: list[PlanoCargado] = []
     pendientes: list[LaminaPendiente] = []
     #: La revisión de los nombres pedidos en ``?archivo=``.
     revisados: list[RevisionLamina] = []
+
+
+class PlanosQuitados(BaseModel):
+    planos: int
+    tramos: int
+    pisos: list[str]
 
 
 class CargaConfirmada(BaseModel):

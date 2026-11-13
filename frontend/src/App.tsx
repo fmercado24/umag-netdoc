@@ -14,6 +14,7 @@ import { leerUsuario } from './components/camposFormulario'
 import { VisorPlano } from './components/VisorPlano'
 import type {
   CargaConfirmada,
+  PlanosQuitados,
   DefinicionAtributo,
   Edificio,
   ElementoDetalle,
@@ -153,14 +154,12 @@ export default function App({ usuario, onSalir }: Props) {
         setPisos(lista)
         setPisoSel(lista[0]?.codigo ?? '')
         setTramoSel(tramoInicial(lista[0]))
-        // Sin ningún plano, puede ser un edificio vacío: se le pueden cargar.
+        // Sin elementos, sus planos se cargan o se quitan desde el visor.
         setCargaPermitida(false)
-        if (lista.every((p) => p.planos_vigentes.length === 0)) {
-          api
-            .cargaDePlanos(edificioSel)
-            .then((estado) => vigente && setCargaPermitida(estado.permitida))
-            .catch(() => vigente && setCargaPermitida(false))
-        }
+        api
+          .cargaDePlanos(edificioSel)
+          .then((estado) => vigente && setCargaPermitida(estado.permitida))
+          .catch(() => vigente && setCargaPermitida(false))
       })
       .catch((e) => vigente && reportar(e))
     return () => {
@@ -267,6 +266,7 @@ export default function App({ usuario, onSalir }: Props) {
   }
 
   const pisoActual = pisos.find((p) => p.codigo === pisoSel)
+  const sinPlanos = pisos.every((p) => p.planos_vigentes.length === 0)
 
   // --- Alta ---------------------------------------------------------------
   const abrirAlta = () => {
@@ -284,9 +284,18 @@ export default function App({ usuario, onSalir }: Props) {
     setCargandoPlanos(true)
   }
 
+  const alQuitarPlanos = (resultado: PlanosQuitados) => {
+    setCargandoPlanos(false)
+    limpiarSeleccion()
+    setAviso(
+      `Se quitaron ${resultado.planos} plano(s) de ${edificioSel}, con sus pisos y tramos. ` +
+        'El edificio volvió a quedar vacío.',
+    )
+    setVersionPisos((v) => v + 1)
+  }
+
   const alCargarPlanos = (resultado: CargaConfirmada) => {
     setCargandoPlanos(false)
-    setCargaPermitida(false)
     const partes = [`${resultado.planos.length} plano(s)`]
     if (resultado.pisos.length) partes.push(`${resultado.pisos.length} piso(s)`)
     if (resultado.tramos.length) partes.push(`${resultado.tramos.length} tramo(s)`)
@@ -567,6 +576,7 @@ export default function App({ usuario, onSalir }: Props) {
           onSeleccionar={(e) => seleccionar(e.id)}
           puedeAgregar={pisos.length > 0}
           onAgregar={abrirAlta}
+          onPlanos={cargaPermitida && !sinPlanos ? abrirCargaDePlanos : undefined}
           onVerEliminados={() => {
             setAgregando(false)
             setViendoEliminados(true)
@@ -584,7 +594,7 @@ export default function App({ usuario, onSalir }: Props) {
           onPosicionar={posicionar}
           onCancelarPosicion={() => setPosicionando(null)}
           edificio={edificioSel}
-          edificioVacio={cargaPermitida}
+          edificioVacio={cargaPermitida && sinPlanos}
           onCargarPlanos={cargaPermitida && !cargandoPlanos ? abrirCargaDePlanos : undefined}
         />
 
@@ -593,6 +603,7 @@ export default function App({ usuario, onSalir }: Props) {
             edificio={edificioSel}
             onCerrar={() => setCargandoPlanos(false)}
             onConfirmada={alCargarPlanos}
+            onQuitados={alQuitarPlanos}
           />
         )}
 

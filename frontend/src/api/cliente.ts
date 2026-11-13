@@ -12,6 +12,7 @@ import type {
   HistorialEntrada,
   LaminaPendiente,
   Piso,
+  PlanosQuitados,
   PrevioTraslado,
   Recinto,
   RespuestaMapa,
@@ -254,6 +255,16 @@ export const api = {
     pedir<CargaConfirmada>(`/edificios/${edificio}/carga-de-planos/confirmar`, {
       method: 'POST',
     }),
+
+  /**
+   * Quita los planos, tramos y pisos de un edificio sin elementos. `confirmar` es el
+   * código del edificio, escrito por quien lo pide.
+   */
+  quitarPlanos: (edificio: string, confirmar: string) =>
+    pedir<PlanosQuitados>(
+      `/edificios/${edificio}/planos?${new URLSearchParams({ confirmar })}`,
+      { method: 'DELETE' },
+    ),
 
   /** Una marca que cambia cuando alguien cambia algo del edificio; llega también con el plano. */
   novedades: (edificio: string) => pedir<{ marca: string }>(`/edificios/${edificio}/novedades`),

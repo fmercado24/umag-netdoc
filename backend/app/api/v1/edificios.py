@@ -36,6 +36,7 @@ from app.schemas.organizacion import (
     PisoCrear,
     PisoLeer,
     PlanoLeer,
+    PlanosQuitados,
     RecintoLeer,
     TramoCrear,
     TramoLeer,
@@ -93,6 +94,27 @@ def novedades(codigo: str, sesion: SesionBD) -> dict:
     (``servicios.proteccion``).
     """
     return {"marca": marca_del_edificio(sesion, obtener_edificio(sesion, codigo))}
+
+
+@router.delete("/{codigo}/planos", response_model=PlanosQuitados)
+def quitar_planos(
+    codigo: str,
+    sesion: SesionBD,
+    tareas: BackgroundTasks,
+    confirmar: str = Query(description="El código del edificio, escrito por quien lo pide"),
+):
+    """Quita los planos, los tramos y los pisos de un edificio sin elementos, y lo
+    deja como antes de cargarlos. Los archivos se borran después de responder."""
+    edificio = obtener_edificio(sesion, codigo)
+    try:
+        quitados = carga_planos.quitar_planos(sesion, edificio, confirmar)
+    except carga_planos.ConfirmacionIncorrecta as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except carga_planos.CargaNoPermitida as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    tareas.add_task(carga_planos.borrar_archivos, quitados.archivos)
+    tareas.add_task(carga_planos.descartar_todo, edificio.codigo)
+    return PlanosQuitados(planos=quitados.planos, tramos=quitados.tramos, pisos=quitados.pisos)
 
 
 @router.get("/{codigo}/pisos", response_model=list[PisoLeer])
@@ -163,13 +185,23 @@ def obtener_plano(codigo: str, codigo_piso: str, sesion: SesionBD, tramo: str | 
 
 def _estado_de_carga(sesion, edificio: Edificio, revisar: list[str] | None = None) -> CargaDePlanos:
     motivo = carga_planos.motivo_para_no_cargar(sesion, edificio)
+    cargados = [
+        {
+            "destino": carga_planos.describir_destino(p.piso.codigo, p.tramo.codigo if p.tramo else None),
+            "archivo": p.archivo,
+            "ancho_px": p.ancho_px,
+            "alto_px": p.alto_px,
+        }
+        for p in carga_planos.planos_vigentes(sesion, edificio)
+    ]
     return CargaDePlanos(
         edificio=edificio.codigo,
         permitida=motivo is None,
         motivo=motivo,
         **carga_planos.ejemplos(edificio),
+        cargados=cargados,
         pendientes=[asdict(p) for p in carga_planos.listar(edificio)] if motivo is None else [],
-        revisados=[asdict(carga_planos.revisar(edificio, n)) for n in (revisar or [])],
+        revisados=[asdict(carga_planos.revisar(sesion, edificio, n)) for n in (revisar or [])],
     )
 
 
@@ -179,9 +211,9 @@ def estado_carga_de_planos(
     sesion: SesionBD,
     archivo: list[str] = Query(default=[], max_length=200, description="Nombres de archivo a revisar"),
 ):
-    """Si el edificio está vacío (sin planos ni elementos), cómo deben llamarse sus
-    planos y los que ya esperan a confirmarse. Con ``archivo`` revisa esos nombres
-    antes de subirlos."""
+    """Si el edificio no tiene elementos, cómo deben llamarse sus planos, los que ya
+    tiene y los que esperan a confirmarse. Con ``archivo`` revisa esos nombres antes
+    de subirlos."""
     return _estado_de_carga(sesion, obtener_edificio(sesion, codigo), archivo)
 
 

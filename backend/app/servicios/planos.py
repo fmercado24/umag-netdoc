@@ -236,6 +236,9 @@ def guardar_plano(
     patron_version = re.compile(rf"^{re.escape(alcance)}-v(\d+)\b")
     usados = [p.archivo.removeprefix("planos/") for p in mismo_alcance]
     usados += [r.name for r in configuracion.dir_planos.glob(f"{alcance}-v*")]
+    # También las teselas: las de un plano quitado no deben quedar con el nombre
+    # del siguiente, que el visor mostraría en su lugar.
+    usados += [r.name for r in (configuracion.dir_media / "teselas").glob(f"{alcance}-v*")]
     numero = 1 + max(
         (int(m.group(1)) for n in usados if (m := patron_version.match(n))), default=0
     )

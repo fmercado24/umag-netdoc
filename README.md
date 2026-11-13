@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           532 pruebas (pytest)
+│   └── tests/           544 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -224,7 +224,7 @@ cd backend
 
 ## Cargar el plano de un piso
 
-### Desde el visor, en un edificio vacío
+### Desde el visor, mientras el edificio no tenga elementos
 
 Al elegir un edificio sin planos ni elementos, el visor ofrece **Cargar planos**. Se
 eligen los archivos SVG, uno por piso o por tramo, y **el nombre de cada uno dice dónde
@@ -242,7 +242,16 @@ edificio.
 - **Al confirmar**, se crean de una vez los pisos y tramos que nombran, y los planos
   quedan vigentes. Mientras se generan las teselas, el visor muestra la lámina original.
 
-Desde ahí el edificio ya no está vacío: los planos que falten o sus versiones nuevas se
+Mientras el edificio no tenga elementos, el panel lateral ofrece **Agregar o quitar
+planos**:
+
+- **Agregar los que faltan.** Si se cargó uno y eran tres, se suben los otros dos. Un piso
+  o tramo que ya tiene plano no se reemplaza.
+- **Quitar los planos cargados**, para empezar de nuevo: borra los planos, sus pisos, sus
+  tramos y sus teselas, y el edificio vuelve a quedar vacío. Pide confirmarlo dos veces; la
+  segunda, escribiendo el código del edificio.
+
+Con el primer elemento, esto se cierra: los planos que falten o sus versiones nuevas se
 cargan desde la terminal, como se explica abajo, donde se ve qué pasa con lo ya ubicado.
 Los números de sala de las láminas (OCR) se leen aparte, con
 [`extraer_recintos`](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
@@ -481,6 +490,7 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `GET` | `/api/v1/edificios/{codigo}/carga-de-planos?archivo=` | Si el edificio está vacío y se le pueden cargar planos, cómo deben llamarse y los que esperan; con `archivo`, revisa esos nombres |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos` | Sube un plano a la espera, revisado (nombre, SVG, tamaño). `DELETE …/carga-de-planos/{archivo}` lo quita |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos/confirmar` | Crea los pisos y tramos que nombran los planos en espera y los deja vigentes |
+| `DELETE` | `/api/v1/edificios/{codigo}/planos?confirmar=CODIGO` | Quita los planos, tramos y pisos de un edificio sin elementos; `confirmar` es su código |
 | `GET` | `/api/v1/elementos/mapa?edificio=&piso=&tramo=` | Plano + elementos del piso o del tramo, en una llamada |
 | `GET` | `/api/v1/elementos` | Listado con filtros por tipo, estado, rack y búsqueda libre |
 | `POST` | `/api/v1/elementos` | Alta; genera el código según SOP §8 si no se entrega. Un punto de datos lo toma de `rack_origen` y `puerto` |
@@ -545,7 +555,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 532 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 544 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

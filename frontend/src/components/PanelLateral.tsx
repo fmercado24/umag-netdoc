@@ -35,6 +35,8 @@ interface Props {
   puedeAgregar: boolean
   onAgregar: () => void
   onVerEliminados: () => void
+  /** El edificio aún no tiene elementos: sus planos se pueden agregar o quitar. */
+  onPlanos?: () => void
 }
 
 export function PanelLateral({
@@ -56,6 +58,7 @@ export function PanelLateral({
   puedeAgregar,
   onAgregar,
   onVerEliminados,
+  onPlanos,
 }: Props) {
   const hayFiltros = tiposActivos.size > 0 || estadosActivos.size > 0
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
@@ -183,6 +186,11 @@ export function PanelLateral({
         >
           + Agregar elemento
         </button>
+        {onPlanos && (
+          <button className="boton-enlace boton--eliminados" onClick={onPlanos}>
+            Agregar o quitar planos
+          </button>
+        )}
         <button className="boton-enlace boton--eliminados" onClick={onVerEliminados}>
           Ver eliminados
         </button>

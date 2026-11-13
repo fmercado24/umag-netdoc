@@ -1,8 +1,10 @@
-"""Cargar los planos de un edificio vacío desde el visor."""
+"""Cargar y quitar los planos de un edificio sin elementos, desde el visor."""
 
 from __future__ import annotations
 
+import json
 import threading
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -69,12 +71,15 @@ def test_un_edificio_vacio_puede_cargar_planos_y_sabe_como_llamarlos(cliente, ed
     assert estado["pendientes"] == []
 
 
-def test_un_edificio_con_planos_no_puede(cliente):
-    estado = _estado(cliente, "CADI")
+def test_un_edificio_con_elementos_no_puede(cliente, edificio):
+    cliente.post(f"{API}/edificios/{edificio}/pisos", json={"codigo": "P01", "orden": 1})
+    cliente.post(f"{API}/elementos", json={"tipo": "SW", "edificio": edificio, "piso": "P01"})
+    estado = _estado(cliente, edificio)
     assert estado["permitida"] is False
-    assert "CADI ya tiene" in estado["motivo"] and "cargar_planos" in estado["motivo"]
-    assert _subir(cliente, "CADI", "cadi-p09.svg").status_code == 409
-    assert _confirmar(cliente, "CADI").status_code == 409
+    assert f"{edificio} ya tiene" in estado["motivo"] and "cargar_planos" in estado["motivo"]
+    assert _confirmar(cliente, edificio).status_code == 409
+    assert cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio}).status_code == 409
+    assert _subir(cliente, edificio, f"{edificio.lower()}-p02.svg").status_code == 409
 
 
 def test_un_edificio_con_elementos_tampoco(cliente, edificio):
@@ -243,8 +248,10 @@ def test_confirmar_crea_pisos_tramos_y_planos(cliente, edificio):
     assert f"planos/{edificio}-P01-T1-v1.svg" in archivos
     assert all((configuracion.dir_media / a).exists() for a in archivos)
     assert not (configuracion.dir_planos_pendientes / edificio).exists()
-    # Ya no está vacío, y el visor puede abrirlo.
-    assert _estado(cliente, edificio)["permitida"] is False
+    # Sin elementos, sigue pudiendo cargar o quitar; el visor ya puede abrirlo.
+    estado = _estado(cliente, edificio)
+    assert estado["permitida"] is True
+    assert [c["destino"] for c in estado["cargados"]] == ["Subterráneo", "Piso 1, tramo 1", "Piso 1, tramo 2", "Piso 2 completo"]
     mapa = cliente.get(f"{API}/elementos/mapa", params={"edificio": edificio, "piso": "P01", "tramo": "T1"}).json()
     assert mapa["plano"]["ancho_px"] == 1000
     assert cliente.get("/media/" + archivos[1]).content == svg(1000, 700)
@@ -308,3 +315,155 @@ def test_un_usuario_limitado_carga_los_planos_de_su_edificio_si_esta_vacio(clien
     assert _subir(propio, edificio, f"{edificio.lower()}-p01.svg").status_code == 201
     assert _confirmar(propio, edificio).status_code == 200
     assert propio.get(f"{API}/edificios/CADI/carga-de-planos").status_code == 403
+
+
+# --- Mientras no tenga elementos: agregar los que faltan y quitar todo ---------------------
+
+
+def _cargar(cliente, edificio, *nombres):
+    for nombre in nombres:
+        assert _subir(cliente, edificio, nombre).status_code == 201
+    assert _confirmar(cliente, edificio).status_code == 200
+
+
+def test_se_agregan_los_que_faltan(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    # Me faltaban dos.
+    _cargar(cliente, edificio, f"{p}-p02.svg", f"{p}-p03-t1.svg")
+    pisos = cliente.get(f"{API}/edificios/{edificio}/pisos").json()
+    assert [(x["codigo"], len(x["planos_vigentes"])) for x in pisos] == [("P01", 1), ("P02", 1), ("P03", 1)]
+
+
+def test_un_piso_que_ya_tiene_plano_no_se_reemplaza_desde_el_visor(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    revision = _estado(cliente, edificio, f"{p}-p01.svg")["revisados"][0]
+    assert "ya tiene plano" in revision["error"] and "quite los planos" in revision["error"]
+    respuesta = _subir(cliente, edificio, f"{p}-p01.svg")
+    assert respuesta.status_code == 409
+    assert "ya tiene plano" in respuesta.json()["detail"]
+
+
+def test_si_otra_persona_cargo_el_mismo_piso_entretanto_no_se_confirma(cliente, edificio):
+    p = edificio.lower()
+    _subir(cliente, edificio, f"{p}-p01.svg")
+    # Otra persona sube y confirma el mismo piso por su cuenta…
+    with SesionLocal() as bd:
+        from app.models import Edificio
+        from app.servicios import carga_planos
+
+        ed = bd.scalar(select(Edificio).where(Edificio.codigo == edificio))
+        carga_planos.confirmar(bd, ed)
+        bd.commit()
+    # …y lo que dejó en espera la primera ya no se puede confirmar encima.
+    _subir_directo = configuracion.dir_planos_pendientes / edificio
+    _subir_directo.mkdir(parents=True, exist_ok=True)
+    (_subir_directo / f"{p}-p01.svg").write_bytes(svg())
+    ficha = {"nombre": f"{p}-p01.svg", "piso": "P01", "tramo": None, "destino": "Piso 1 completo",
+             "ancho_px": 1000, "alto_px": 700, "bytes": 10}
+    (_subir_directo / f"{p}-p01.json").write_text(json.dumps(ficha), encoding="utf-8")
+    respuesta = _confirmar(cliente, edificio)
+    assert respuesta.status_code == 409
+    assert "ya tiene plano" in respuesta.json()["detail"]
+
+
+def test_quitar_los_planos_deja_el_edificio_vacio(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p00.svg", f"{p}-p01-t1.svg", f"{p}-p01-t2.svg")
+    archivos = [c["archivo"] for c in _estado(cliente, edificio)["cargados"]]
+    teselas = configuracion.dir_media / "teselas" / Path(archivos[0]).stem
+    teselas.mkdir(parents=True, exist_ok=True)
+    (teselas / "teselas.json").write_text("{}", encoding="utf-8")
+    _subir(cliente, edificio, f"{p}-p02.svg")  # algo en espera, que también se descarta
+
+    respuesta = cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio.lower()})
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json() == {"planos": 3, "tramos": 2, "pisos": ["P00", "P01"]}
+
+    assert cliente.get(f"{API}/edificios/{edificio}/pisos").json() == []
+    estado = _estado(cliente, edificio)
+    assert (estado["permitida"], estado["cargados"], estado["pendientes"]) == (True, [], [])
+    assert not any((configuracion.dir_media / a).exists() for a in archivos)
+    assert not teselas.exists()
+    with SesionLocal() as bd:
+        from app.models import Edificio
+
+        assert bd.scalar(select(Edificio).where(Edificio.codigo == edificio)) is not None
+        assert bd.scalar(select(Plano).join(Piso).where(Piso.edificio.has(codigo=edificio))) is None
+    # Y se puede volver a cargar desde cero.
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+
+
+def test_quitar_exige_escribir_el_codigo_del_edificio(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    for confirmar in ("", "SI", "CADI", edificio + "X"):
+        respuesta = cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": confirmar})
+        assert respuesta.status_code == 422, confirmar
+        assert edificio in respuesta.json()["detail"]
+    assert cliente.delete(f"{API}/edificios/{edificio}/planos").status_code == 422
+    assert len(_estado(cliente, edificio)["cargados"]) == 1
+
+
+def test_quitar_sin_planos_no_hace_nada(cliente, edificio):
+    respuesta = cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio})
+    assert respuesta.status_code == 409
+
+
+def test_con_un_elemento_ya_no_se_quitan_ni_se_agregan(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    cliente.post(f"{API}/elementos", json={"tipo": "SW", "edificio": edificio, "piso": "P01"})
+    assert _estado(cliente, edificio)["permitida"] is False
+    assert cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio}).status_code == 409
+    assert _subir(cliente, edificio, f"{p}-p02.svg").status_code == 409
+    assert len(cliente.get(f"{API}/edificios/{edificio}/pisos").json()) == 1
+
+
+def test_quitar_no_toca_los_planos_de_otro_edificio(cliente, edificio):
+    otro = edificio[:-1] + ("Z" if edificio[-1] != "Z" else "Y")
+    assert cliente.post(f"{API}/edificios", json={"codigo": otro, "nombre": "Otro vacío"}).status_code == 201
+    _cargar(cliente, edificio, f"{edificio.lower()}-p01.svg")
+    _cargar(cliente, otro, f"{otro.lower()}-p01.svg")
+    del_otro = _estado(cliente, otro)["cargados"][0]["archivo"]
+
+    assert cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio}).status_code == 200
+    assert _estado(cliente, otro)["cargados"][0]["archivo"] == del_otro
+    assert (configuracion.dir_media / del_otro).exists()
+    assert [x["codigo"] for x in cliente.get(f"{API}/edificios/{otro}/pisos").json()] == ["P01"]
+
+
+def test_borrar_archivos_no_sale_de_la_carpeta_de_planos(tmp_path):
+    from app.servicios.carga_planos import borrar_archivos
+
+    afuera = configuracion.dir_media / "no-es-un-plano.txt"
+    afuera.write_text("x", encoding="utf-8")
+    borrar_archivos(["../no-es-un-plano.txt", "planos/../no-es-un-plano.txt", "fotografias/x.jpg"])
+    assert afuera.exists()
+    afuera.unlink()
+
+
+def test_un_plano_vuelto_a_cargar_no_hereda_teselas_viejas(cliente, edificio):
+    p = edificio.lower()
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    archivo = _estado(cliente, edificio)["cargados"][0]["archivo"]
+    # Las teselas del primero quedaron (p. ej. se terminaron de generar después de quitarlo).
+    viejas = configuracion.dir_media / "teselas" / Path(archivo).stem
+    viejas.mkdir(parents=True, exist_ok=True)
+    cliente.delete(f"{API}/edificios/{edificio}/planos", params={"confirmar": edificio})
+    viejas.mkdir(parents=True, exist_ok=True)
+
+    _cargar(cliente, edificio, f"{p}-p01.svg")
+    nuevo = _estado(cliente, edificio)["cargados"][0]["archivo"]
+    assert Path(nuevo).stem != Path(archivo).stem
+
+
+def test_las_teselas_de_un_plano_ya_quitado_no_se_generan(monkeypatch):
+    from app.servicios import teselas
+
+    monkeypatch.setattr(configuracion, "teselas", True)
+    llamadas = []
+    monkeypatch.setattr(teselas, "ProcessPoolExecutor", lambda **k: llamadas.append(k))
+    assert teselas.asegurar_teselas("planos/NOEXISTE-P01-v1.svg", 1000) is None
+    assert llamadas == []

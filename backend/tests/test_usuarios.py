@@ -353,6 +353,7 @@ CASOS = [
     ("POST", f"{API}/edificios/{{codigo}}/carga-de-planos", f"{API}/edificios/AJE/carga-de-planos", {"files": {"archivo": ("aje-p02.svg", SVG, "image/svg+xml")}}, 403),
     ("DELETE", f"{API}/edificios/{{codigo}}/carga-de-planos/{{archivo}}", f"{API}/edificios/AJE/carga-de-planos/aje-p02.svg", {}, 403),
     ("POST", f"{API}/edificios/{{codigo}}/carga-de-planos/confirmar", f"{API}/edificios/AJE/carga-de-planos/confirmar", {}, 403),
+    ("DELETE", f"{API}/edificios/{{codigo}}/planos", f"{API}/edificios/AJE/planos?confirmar=AJE", {}, 403),
     ("GET", f"{API}/edificios/{{codigo}}/pisos", f"{API}/edificios/AJE/pisos", {}, 403),
     ("POST", f"{API}/edificios/{{codigo}}/pisos", f"{API}/edificios/AJE/pisos", {"json": {"codigo": "P09", "orden": 9}}, 403),
     ("POST", f"{API}/edificios/{{codigo}}/pisos/{{codigo_piso}}/tramos", f"{API}/edificios/AJE/pisos/P01/tramos", {"json": {"codigo": "T9"}}, 403),

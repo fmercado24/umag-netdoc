@@ -138,6 +138,11 @@ def generar_teselas(archivo: str, ancho_px: int) -> InfoTeselas:
 
     shutil.rmtree(destino, ignore_errors=True)
     temporal.rename(destino)
+    # El plano pudo quitarse mientras se dibujaba (app.servicios.carga_planos):
+    # sus teselas no deben quedar huérfanas.
+    if not origen.exists():
+        shutil.rmtree(destino, ignore_errors=True)
+        raise FileNotFoundError(f"el plano {archivo} se quitó mientras se generaban sus teselas")
     return info
 
 
@@ -150,7 +155,7 @@ def _generar_en_proceso(archivo: str, ancho_px: int) -> InfoTeselas:
         raise RuntimeError(f"libvips no está disponible: {exc}") from None
     try:
         return generar_teselas(archivo, ancho_px)
-    except pyvips.Error as exc:
+    except (pyvips.Error, FileNotFoundError) as exc:
         raise RuntimeError(str(exc)) from None
 
 
@@ -165,12 +170,18 @@ def asegurar_teselas(archivo: str, ancho_px: int) -> InfoTeselas | None:
     """
     if (info := leer_teselas(archivo)) is not None or not configuracion.teselas:
         return info
+    if not (configuracion.dir_media / archivo).exists():
+        # Se quitó antes de que le tocara el turno: no hay nada que dibujar.
+        return None
     inicio = time.monotonic()
     contexto = multiprocessing.get_context("spawn")
     try:
         with ProcessPoolExecutor(max_workers=1, mp_context=contexto) as proceso:
             info = proceso.submit(_generar_en_proceso, archivo, ancho_px).result()
     except (RuntimeError, OSError, ValueError, BrokenProcessPool):
+        if not (configuracion.dir_media / archivo).exists():
+            registro.info("Teselas de %s descartadas: el plano se quitó", archivo)
+            return None
         registro.warning("No se pudieron generar las teselas de %s", archivo, exc_info=True)
         return None
     registro.info("Teselas de %s en %.1f s", archivo, time.monotonic() - inicio)

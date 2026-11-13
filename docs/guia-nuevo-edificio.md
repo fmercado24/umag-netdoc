@@ -32,7 +32,9 @@ Los pasos 6 y 7 los hace solo `./iniciar.sh` para cualquier edificio **nuevo**
 
 **Sin terminal**, para empezar un edificio vacío (sin planos ni elementos): elíjalo en el
 visor y use **Cargar planos**. Con los nombres de las láminas (sección 4) se crean sus
-pisos y tramos, y los elementos se agregan después desde el mismo visor. Lo que este
+pisos y tramos, y los elementos se agregan después desde el mismo visor. Mientras no
+tenga elementos, **Agregar o quitar planos**, en el panel lateral, permite subir los que
+falten o quitarlos todos para empezar de nuevo. Lo que este
 camino no hace es leer los números de sala de las láminas (sección 4.1): para eso, deje
 también las láminas en `data/<p>/planos/` y corra `extraer_recintos`.
 
