@@ -1,17 +1,20 @@
 """Recintos de las láminas y ubicación automática de los elementos.
 
-Cada sala de los planos lleva su número bajo el nombre (``SALA 1`` / ``0021``),
-y el número dice el piso: los del subterráneo empiezan con 00 (``0017``), los
-del primer piso con 1 (``1083``), los del segundo con 2, y así. Las planillas
-del levantamiento anotan ese mismo número en la ubicación de cada elemento
-(«Oficina 1083»), de modo que basta con encontrarlo en la lámina para saber
-dónde dibujar el elemento.
+Cada sala de los planos lleva un código en su rótulo, y la universidad no
+tiene una sola forma de escribirlo. En el CADI es un número de cuatro cifras
+bajo el nombre que dice el piso: los del subterráneo empiezan con 00
+(``0017``), los del primer piso con 1 (``1083``), y así. En la Biblioteca es
+un número de dos cifras que empieza de nuevo en cada piso (``09``, ``25A``).
+El sistema guarda cada código tal como lo escribe la lámina, y la ubicación de
+cada elemento anota ese mismo código («Oficina 1083», N° de recinto ``09``):
+basta con encontrarlo en la lámina para saber dónde dibujar el elemento.
 
-* ``numero_de_recinto`` saca el número de sala de un texto de ubicación.
+* ``numero_de_recinto`` saca el código de sala de un texto de ubicación.
 * ``sincronizar_recintos`` copia ``<edificio>-recintos.csv`` a la tabla
   ``recinto``. Ese archivo lo escribe ``app.scripts.extraer_recintos``
   leyendo las láminas, y cada fila lleva la huella de la versión de la lámina
-  de la que se leyó: una versión nueva necesita volver a leerse.
+  de la que se leyó: una versión nueva necesita volver a leerse. Los planos
+  que se cargan desde el visor se leen solos (``app.servicios.lectura_recintos``).
 * ``ubicar_en_recinto`` y ``ubicar_pendientes`` dejan cada elemento en su
   recinto. Los puntos de datos de una sala quedan todos en el mismo punto, y
   el visor los agrupa en un marcador que se despliega; los demás equipos van
@@ -26,6 +29,7 @@ import io
 import re
 import unicodedata
 from collections import Counter, defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -74,14 +78,28 @@ def corresponde_al_piso(numero: str, codigo_piso: str) -> bool:
     return prefijo is not None and numero.startswith(prefijo)
 
 
-def numero_de_recinto(texto: str | None, codigo_piso: str) -> str | None:
+def numero_de_recinto(
+    texto: str | None, codigo_piso: str, conocidos: Collection[str] = ()
+) -> str | None:
     """El número de recinto que trae un texto de ubicación, o None.
 
-    Solo cuenta un número del piso: en «Oficina 1039/2018» del primer piso es
-    1039, y «Box Fisiopatología 2022» del tercero no tiene ninguno (2022 es del
-    segundo piso: es un error de la planilla). Si hay varios, el último, que es
-    donde las planillas anotan el número de sala.
+    Con la numeración por piso del CADI, solo cuenta un número del piso: en
+    «Oficina 1039/2018» del primer piso es 1039, y «Box Fisiopatología 2022»
+    del tercero no tiene ninguno (2022 es del segundo piso: es un error de la
+    planilla). En los demás edificios, cuenta un código de las láminas del
+    piso (``conocidos``), escrito como en la lámina: «Oficina administrativa
+    09» → ``09``, y también la nomenclatura completa de la Biblioteca,
+    «BC-01-09-E» → ``09``. En un texto libre, «Piso 1» no es la sala 01. Si
+    hay varios, el último, que es donde las planillas anotan el número de sala.
     """
+    if conocidos and not numera_por_piso(conocidos, codigo_piso):
+        como_en_la_lamina = {codigo.upper(): codigo for codigo in conocidos}
+        hallados = [
+            codigo
+            for parte in RE_CODIGO_EN_TEXTO.findall(texto or "")
+            if (codigo := como_en_la_lamina.get(parte.upper().replace(",", ".")))
+        ]
+        return hallados[-1] if hallados else None
     del_piso = [n for n in numeros_en(texto) if corresponde_al_piso(n, codigo_piso)]
     return del_piso[-1] if del_piso else None
 
@@ -95,6 +113,46 @@ def normalizar_numero(valor: str) -> str | None:
 def numero_base(numero: str) -> str:
     """'1083.2' → '1083': la sala que contiene a una subdivisión sin rótulo propio."""
     return numero.split(".", 1)[0]
+
+
+# --- Cualquier nomenclatura -------------------------------------------------
+#: Un código de sala como lo escribe una lámina: «09», «25A», «1083.2», «B-101».
+RE_CODIGO_LIBRE = re.compile(r"[A-Z0-9](?:[A-Z0-9./-]{0,18}[A-Z0-9])?")
+#: Un código dentro de un texto: «Oficina 09», «BC-01-09-E».
+RE_CODIGO_EN_TEXTO = re.compile(
+    r"(?<![A-Za-z0-9])([A-Za-z]{0,3}-?\d{1,4}[A-Za-z]?(?:[.,]\d{1,2})?)(?![A-Za-z0-9])"
+)
+
+
+def normalizar_codigo(valor: str) -> str | None:
+    """El código como se guarda («25a» → «25A», «1083,2» → «1083.2»), o None
+    si no parece uno: debe tener alguna cifra y a lo más 20 caracteres."""
+    texto = re.sub(r"\s+", "", valor).upper().replace(",", ".")
+    if RE_CODIGO_LIBRE.fullmatch(texto) is None or not any(c.isdigit() for c in texto):
+        return None
+    return texto
+
+
+def clave_de_codigo(codigo: str) -> str:
+    """Para comparar códigos: «9», «09» y «09 » son la misma sala."""
+    texto = re.sub(r"\s+", "", codigo).upper().replace(",", ".")
+    return re.sub(r"^0+(?=\d)", "", texto)
+
+
+def buscar_codigo(valor: str, conocidos: Collection[str]) -> str | None:
+    """El código de ``conocidos`` que es ``valor``, como lo escribe la lámina."""
+    if valor in conocidos:
+        return valor
+    clave = clave_de_codigo(valor)
+    return next((c for c in sorted(conocidos) if clave_de_codigo(c) == clave), None)
+
+
+def numera_por_piso(conocidos: Collection[str], codigo_piso: str) -> bool:
+    """Si las salas del piso siguen la numeración por piso del CADI."""
+    salas = [c for c in conocidos if not es_rotulo_de_rack(c)]
+    return bool(salas) and all(
+        normalizar_numero(c) == c and corresponde_al_piso(c, codigo_piso) for c in salas
+    )
 
 
 #: Los racks también están rotulados en las láminas («RACK 08», «Rack 11»), y
@@ -153,7 +211,7 @@ def leer_recintos(ruta: Path) -> tuple[list[FilaRecinto], list[str]]:
     for numero_fila, fila in enumerate(csv.DictReader(io.StringIO(texto, newline="")), start=2):
         try:
             clave = (fila.get("numero") or "").strip().upper()
-            numero = normalizar_numero(clave) or (clave if es_rotulo_de_rack(clave) else None)
+            numero = normalizar_codigo(clave)
             if numero is None:
                 raise ValueError(f"número de recinto ilegible «{fila.get('numero') or ''}»")
             filas.append(
@@ -196,7 +254,7 @@ def _huella_guardada(plano: Plano) -> str | None:
     return huella_lamina(ruta.read_bytes()) if ruta.is_file() else None
 
 
-def _reemplazar_recintos(plano: Plano, filas: list[FilaRecinto], informe: InformeRecintos) -> None:
+def reemplazar_recintos(plano: Plano, filas: list[FilaRecinto], informe: InformeRecintos) -> None:
     """Deja los recintos del plano iguales a las filas, tocando solo lo que cambió."""
     deseados: dict[str, FilaRecinto] = {}
     for fila in filas:
@@ -254,7 +312,9 @@ def sincronizar_recintos(sesion: Session, edificio: Edificio, dir_datos: Path) -
                 f"cargaron. Vuelva a leerlos con python -m app.scripts.extraer_recintos {edificio.codigo}"
             )
         elif propias:
-            _reemplazar_recintos(plano, propias, informe)
+            reemplazar_recintos(plano, propias, informe)
+            # Vienen del archivo, que alguien revisó: ya no son una lectura del sistema.
+            plano.lectura_recintos = plano.lectura_aviso = None
         if plano.recintos:
             informe.cargados[plano.nombre] = len(plano.recintos)
 
@@ -270,6 +330,24 @@ def sincronizar_recintos(sesion: Session, edificio: Edificio, dir_datos: Path) -
 def recintos_del_piso(piso: Piso) -> list[Recinto]:
     """Los recintos de las láminas vigentes del piso."""
     return [r for plano in piso.planos if plano.vigente for r in plano.recintos]
+
+
+def codigos_del_piso(piso: Piso) -> list[str]:
+    """Los códigos de sala de las láminas vigentes del piso, sin los racks."""
+    return sorted({r.numero for r in recintos_del_piso(piso) if not es_rotulo_de_rack(r.numero)})
+
+
+def sigue_numeracion_por_piso(piso: Piso) -> bool:
+    """Si el piso numera sus salas como el CADI, según sus láminas o, si aún
+    no tienen salas, según las de los otros pisos del edificio."""
+    if conocidos := codigos_del_piso(piso):
+        return numera_por_piso(conocidos, piso.codigo)
+    otros = [
+        (otro.codigo, codigos)
+        for otro in piso.edificio.pisos
+        if otro.id != piso.id and (codigos := codigos_del_piso(otro))
+    ]
+    return bool(otros) and all(numera_por_piso(codigos, codigo) for codigo, codigos in otros)
 
 
 # --------------------------------------------------------------------------
@@ -306,6 +384,12 @@ def _buscar_en_laminas(elemento: Elemento, claves: list[str]) -> Recinto | None:
             for recinto in plano.recintos:
                 if recinto.numero == clave:
                     return recinto
+    # «9» es la sala «09» de la lámina.
+    for clave in map(clave_de_codigo, claves):
+        for plano in orden:
+            for recinto in plano.recintos:
+                if clave_de_codigo(recinto.numero) == clave:
+                    return recinto
     return None
 
 
@@ -323,7 +407,30 @@ def buscar_recinto(elemento: Elemento) -> Recinto | None:
         claves.append(clave_rack(elemento.correlativo))
     if elemento.numero_recinto:
         claves += [elemento.numero_recinto, numero_base(elemento.numero_recinto)]
-    return _buscar_en_laminas(elemento, list(dict.fromkeys(claves))) if claves else None
+    if claves and (recinto := _buscar_en_laminas(elemento, list(dict.fromkeys(claves)))):
+        return recinto
+    # Sin la numeración del CADI, el código puede venir dentro de un texto
+    # escrito antes de que se leyeran las salas: «BC-01-09-E», o una
+    # ubicación como «Oficina administrativa 09».
+    conocidos = codigos_del_piso(elemento.piso)
+    if not conocidos or numera_por_piso(conocidos, elemento.piso.codigo):
+        return None
+    texto = elemento.numero_recinto or elemento.ubicacion_descriptiva
+    codigo = numero_de_recinto(texto, elemento.piso.codigo, conocidos)
+    return _buscar_en_laminas(elemento, [codigo]) if codigo else None
+
+
+def numero_segun_recinto(elemento: Elemento, recinto: Recinto) -> str | None:
+    """El N° de recinto que el elemento debe guardar al quedar en ``recinto``,
+    o None si el suyo ya sirve: «9» pasa a «09», como lo escribe la lámina, y
+    un elemento ubicado por el texto de su ubicación recibe el número. Una
+    subdivisión sin rótulo propio (1083.2 en la sala 1083) se conserva."""
+    if es_rotulo_de_rack(recinto.numero):
+        return None
+    actual = elemento.numero_recinto
+    if actual is not None and recinto.numero in (actual, numero_base(actual)):
+        return None
+    return recinto.numero
 
 
 def _posicion_libre(
@@ -398,8 +505,11 @@ def _registrar_ubicacion(
     origen: OrigenCambio,
     usuario: str | None,
     comentario: str,
+    numero_recinto: str | None = None,
 ) -> None:
     cambios: dict = {"plano_id": plano.id, "pos_x": x, "pos_y": y}
+    if numero_recinto is not None:
+        cambios["numero_recinto"] = numero_recinto
     # La lámina donde quedó pasa a ser la suya (y la de lo que tiene montado).
     if plano.tramo_id is not None:
         cambios["tramo_lamina_id"] = None if plano.tramo_id == elemento.tramo_id else plano.tramo_id
@@ -449,6 +559,7 @@ def ubicar_en_recinto(
         origen=origen,
         usuario=usuario,
         comentario=f"Ubicado {donde} de «{plano.nombre}»",
+        numero_recinto=numero_segun_recinto(elemento, recinto),
     )
     return recinto
 

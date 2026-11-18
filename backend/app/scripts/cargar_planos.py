@@ -53,6 +53,7 @@ from app.core.config import configuracion
 from app.db.session import SesionLocal
 from app.models import Edificio, OrigenCambio, Piso, Plano, Tramo
 from app.scripts.importar_edificio import DIR_DATA, ubicar_en_recintos
+from app.servicios import lectura_recintos
 from app.servicios.planos import (
     NombreLaminaInvalido,
     PlanoRechazado,
@@ -93,6 +94,8 @@ class Resultado:
     renombrables: int = 0
     #: Códigos de los elementos que quedaron sin ubicar, por lámina.
     sin_ubicar: dict[str, list[str]] = field(default_factory=dict)
+    #: Los planos que se guardaron en esta pasada.
+    guardados: list[int] = field(default_factory=list)
 
 
 def _ya_registrada(contenido: bytes, versiones: list[Plano]) -> bool:
@@ -175,6 +178,8 @@ def cargar(sesion: Session, dir_planos: Path, codigo_edificio: str) -> Resultado
         except (PlanoRechazado, ValueError) as exc:
             resultado.omitidos.append(f"«{ruta.name}»: {exc}")
             continue
+        sesion.flush()
+        resultado.guardados.append(plano.id)
 
         if versiones:
             resultado.actualizados += 1
@@ -215,6 +220,30 @@ def generar_teselas_pendientes(codigo_edificio: str) -> None:
             print(f"    ▦ {nombre} ({time.monotonic() - inicio:.0f} s)", flush=True)
         else:
             print(f"    ! {nombre}: sin teselas, el visor mostrará la lámina original", flush=True)
+
+
+def marcar_salas_por_leer(guardados: list[int]) -> None:
+    """Las láminas recién cargadas cuyas salas no trae ``<código>-recintos.csv``
+    quedan para que NetDoc las lea con OCR al arrancar
+    (``app.servicios.lectura_recintos``)."""
+    if not guardados:
+        return
+    with SesionLocal() as sesion:
+        nombres = [
+            plano.nombre
+            for plano in sesion.scalars(
+                select(Plano).where(Plano.id.in_(guardados)).order_by(Plano.nombre)
+            )
+            if plano.vigente and not plano.recintos and lectura_recintos.marcar_para_leer(plano)
+        ]
+        sesion.commit()
+    if nombres:
+        print(
+            f"  Sin salas en el archivo de recintos ({len(nombres)}): "
+            "NetDoc las leerá con OCR al arrancar"
+        )
+        for nombre in nombres:
+            print(f"    - {nombre}")
 
 
 def edificios_con_planos() -> list[str]:
@@ -270,6 +299,7 @@ def main(argumentos: list[str] | None = None) -> None:
         # <código>-recintos.csv va junto a las planillas, en la carpeta que
         # contiene la de las láminas.
         ubicar_en_recintos(codigo, dir_planos.parent)
+        marcar_salas_por_leer(resultado.guardados)
         generar_teselas_pendientes(codigo)
 
 

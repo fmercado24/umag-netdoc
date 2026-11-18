@@ -26,6 +26,8 @@ os.environ["NETDOC_USUARIOS"] = "{}"
 # Dibujar teselas toma un proceso aparte por plano: solo las pruebas de
 # teselas lo activan.
 os.environ["NETDOC_TESELAS"] = "0"
+# Leer las salas con OCR también: las pruebas de la lectura usan un OCR falso.
+os.environ["NETDOC_LEER_RECINTOS"] = "0"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

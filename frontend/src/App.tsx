@@ -301,10 +301,24 @@ export default function App({ usuario, onSalir }: Props) {
     if (resultado.tramos.length) partes.push(`${resultado.tramos.length} tramo(s)`)
     setAviso(
       `Cargados en ${edificioSel}: ${partes.join(', ')}. Mientras se preparan para moverse con ` +
-        'fluidez, el visor muestra las láminas originales.',
+        'fluidez, el visor muestra las láminas originales. Las salas de cada plano se leen ' +
+        'solas en unos minutos, con el código que trae el plano: después, el N° de recinto ' +
+        'ubica cada elemento en su sala.',
     )
     setVersionPisos((v) => v + 1)
   }
+
+  /** Vuelve a pedir la lectura de las salas del plano que se ve (si falló o faltaba el OCR). */
+  const leerSalas = useCallback(async () => {
+    const plano = mapa?.plano
+    if (!plano) return
+    try {
+      await api.leerRecintos(edificioSel, plano.id)
+      recargarMapa()
+    } catch (error) {
+      reportar(error)
+    }
+  }, [mapa, edificioSel, recargarMapa, reportar])
 
   /**
    * Lleva a lo recién creado, trasladado o restaurado; si no quedó en el plano,
@@ -596,6 +610,7 @@ export default function App({ usuario, onSalir }: Props) {
           edificio={edificioSel}
           edificioVacio={cargaPermitida && sinPlanos}
           onCargarPlanos={cargaPermitida && !cargandoPlanos ? abrirCargaDePlanos : undefined}
+          onLeerSalas={leerSalas}
         />
 
         {cargandoPlanos && (

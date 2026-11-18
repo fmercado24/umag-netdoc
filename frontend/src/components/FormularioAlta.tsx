@@ -16,6 +16,7 @@ import {
   Campo,
   ControlAtributo,
   convertirAtributo,
+  ejemplosDeRecinto,
   erroresDelServidor,
   leerUsuario,
   recordarUsuario,
@@ -470,7 +471,7 @@ export function FormularioAlta({
 
             <h3 className="subtitulo">Ubicación</h3>
             {texto('ubicacion_descriptiva', 'Ubicación (recinto)', {
-              placeholder: 'Ej.: Oficina 1083',
+              placeholder: ejemplosDeRecinto(recintos).ubicacion,
             })}
             {campo(
               'numero_recinto',
@@ -478,10 +479,9 @@ export function FormularioAlta({
               <>
                 <input
                   type="text"
-                  inputMode="decimal"
                   list="recintos-alta"
                   value={base.numero_recinto}
-                  placeholder="Ej.: 1083"
+                  placeholder={ejemplosDeRecinto(recintos).numero}
                   onChange={(e) => cambiar('numero_recinto', e.target.value)}
                 />
                 <datalist id="recintos-alta">
@@ -492,7 +492,7 @@ export function FormularioAlta({
                   ))}
                 </datalist>
               </>,
-              'Con el número de una sala del plano, queda ubicado ahí. Sin él, podrás marcarlo con un clic.',
+              'El código de la sala tal como aparece en el plano: con él queda ubicado ahí. Sin él, podrás marcarlo con un clic.',
             )}
             {admiteRack &&
               campo(

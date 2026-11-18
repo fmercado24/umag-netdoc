@@ -61,6 +61,8 @@ Table plano [headercolor: #1e6fd9] {
   version varchar(40)
   vigente boolean [not null, default: true]
   notas text
+  lectura_recintos varchar(12)
+  lectura_aviso varchar(300)
   creado_en timestamptz [not null, default: `now()`]
   actualizado_en timestamptz [not null, default: `now()`]
 

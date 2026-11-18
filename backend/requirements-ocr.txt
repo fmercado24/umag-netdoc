@@ -1,5 +1,9 @@
-# Solo para leer los números de recinto de las láminas
-# (python -m app.scripts.extraer_recintos). El resto del sistema no lo usa,
-# así que iniciar.sh no lo instala: unos 400 MB entre OCR y sus modelos.
+# El OCR que lee las salas de las láminas (app.servicios.ocr_recintos), para
+# leerlas en desarrollo: python -m app.scripts.extraer_recintos, o los planos
+# que se cargan desde el visor. iniciar.sh no lo instala (unos 400 MB entre el
+# OCR y sus modelos); el servidor lo instala con requirements-ocr.lock.
+#
+# La versión va fija: RapidOCR 1.4 no se instala en Python 3.13 o posterior,
+# y otra versión podría leer distinto las mismas láminas.
 -r requirements.txt
-rapidocr_onnxruntime>=1.2
+rapidocr_onnxruntime==1.2.3

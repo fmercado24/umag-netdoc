@@ -148,6 +148,12 @@ class Plano(Base, MixinTiempos):
     version: Mapped[str | None] = mapped_column(String(40))
     vigente: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notas: Mapped[str | None] = mapped_column(Text)
+    #: En qué va la lectura de sus salas con OCR (app.servicios.lectura_recintos):
+    #: pendiente, leyendo, lista, fallida o sin_ocr. Nulo si sus recintos
+    #: vienen de <edificio>-recintos.csv, o si no se leyó.
+    lectura_recintos: Mapped[str | None] = mapped_column(String(12))
+    #: Cómo terminó: cuántas salas se leyeron, o por qué no se pudo.
+    lectura_aviso: Mapped[str | None] = mapped_column(String(300))
 
     piso: Mapped[Piso] = relationship(back_populates="planos")
     tramo: Mapped[Tramo | None] = relationship(lazy="joined")
@@ -159,6 +165,10 @@ class Plano(Base, MixinTiempos):
     def tramo_codigo(self) -> str | None:
         return self.tramo.codigo if self.tramo else None
 
+    @property
+    def cantidad_recintos(self) -> int:
+        return len(self.recintos)
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Plano {self.nombre}>"
 
@@ -166,9 +176,12 @@ class Plano(Base, MixinTiempos):
 class Recinto(Base):
     """Sala dibujada en una lámina, con el punto donde se ubican sus elementos.
 
-    Cada recinto de los planos lleva su número bajo el nombre (``SALA 1`` /
-    ``0021``). ``app.scripts.extraer_recintos`` los lee de la lámina y los
-    deja en ``<edificio>-recintos.csv``; al cargar las láminas se copian aquí.
+    Cada recinto de los planos lleva un código en su rótulo, escrito como lo
+    hace cada edificio: ``SALA 1`` / ``0021`` en el CADI, ``E.`` / ``09`` /
+    ``Oficina administrativa`` en la Biblioteca. ``app.scripts.extraer_recintos``
+    los lee de la lámina y los deja en ``<edificio>-recintos.csv``, que al
+    cargar las láminas se copia aquí; los planos cargados desde el visor se
+    leen solos (``app.servicios.lectura_recintos``).
     Las coordenadas son las del plano y valen solo para esa versión de la
     lámina: una versión nueva necesita sus propios recintos.
 
@@ -183,7 +196,7 @@ class Recinto(Base):
     plano_id: Mapped[int] = mapped_column(
         ForeignKey("plano.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    #: Como está en el plano: "0017", "1083", "1083.2".
+    #: Como está en el plano: "0017", "1083", "1083.2", "09", "25A".
     numero: Mapped[str] = mapped_column(String(20), nullable=False)
     nombre: Mapped[str | None] = mapped_column(String(160))
     pos_x: Mapped[float] = mapped_column(Float, nullable=False)

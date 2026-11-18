@@ -12,15 +12,20 @@
 #   --dominio NOMBRE          nombre con que se accede, p. ej. netdoc.umag.cl
 #   --certificado ARCHIVO     certificado de la institución (con su cadena), en vez
 #   --clave-certificado ARCHIVO   de uno autofirmado; van juntos
+#   --actualizar              si hay una versión nueva en GitHub, la trae sin preguntar
+#   --sin-buscar-version      no revisa si hay una versión nueva en GitHub
 #
-# Volver a ejecutarlo actualiza: respalda, copia el código nuevo, aplica las
-# migraciones, importa lo nuevo de data/ y reinicia. Conserva la base, la
-# contraseña y los certificados. Guía: docs/instalacion-servidor.md
+# Volver a ejecutarlo actualiza: revisa si hay una versión nueva en GitHub y
+# pregunta si traerla, respalda, copia el código, aplica las migraciones,
+# importa lo nuevo de data/ y reinicia. Conserva la base, la contraseña y los
+# certificados. Guía: docs/instalacion-servidor.md
 
 set -euo pipefail
 umask 022
 
 ORIGEN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Para volver a ejecutarse igual si trae una versión nueva de sí mismo.
+ARGUMENTOS=("$@")
 APP=/opt/netdoc
 DATOS=/var/lib/netdoc
 ETC=/etc/netdoc
@@ -57,6 +62,10 @@ motor_de() {
 
 # --- Opciones -----------------------------------------------------------------
 BASE="" POSTGRES_URL="" CAMBIAR_BASE=0 DOMINIO="" CERTIFICADO="" CLAVE_CERTIFICADO=""
+# preguntar, si (sin preguntar) o no (no revisa GitHub). Tras actualizarse, la
+# versión nueva del script se ejecuta con NETDOC_VERSION_REVISADA=1.
+BUSCAR_VERSION=preguntar
+[[ -z "${NETDOC_VERSION_REVISADA:-}" ]] || BUSCAR_VERSION=no
 while (($#)); do
   case "$1" in
     --base) BASE="${2:-}"; shift 2 ;;
@@ -65,8 +74,11 @@ while (($#)); do
     --dominio) DOMINIO="${2:-}"; shift 2 ;;
     --certificado) CERTIFICADO="${2:-}"; shift 2 ;;
     --clave-certificado) CLAVE_CERTIFICADO="${2:-}"; shift 2 ;;
+    --actualizar) [[ "$BUSCAR_VERSION" == no ]] || BUSCAR_VERSION=si; shift ;;
+    --sin-buscar-version) BUSCAR_VERSION=no; shift ;;
     -h | --help)
-      sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      # El encabezado de este archivo, hasta la primera línea que no es comentario.
+      awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *) fallar "opción desconocida: $1 (usa --help)" ;;
@@ -78,6 +90,91 @@ done
 command -v apt-get >/dev/null && command -v systemctl >/dev/null ||
   fallar "este script es para Ubuntu con systemd"
 [[ -d "$ORIGEN/backend/app" ]] || fallar "no encuentro el código en $ORIGEN"
+
+# --- ¿Hay una versión nueva en GitHub? ---------------------------------------------
+# Solo si ya está instalado y el código vino con git clone. Una falla de red o
+# de git no impide seguir con la versión que ya está en la carpeta.
+como_dueno() {
+  # git se ejecuta como el dueño de la carpeta: así no deja archivos de root
+  # en un repositorio que es de otra persona, y usa su configuración.
+  local dueno
+  dueno="$(stat -c %U "$ORIGEN")"
+  if [[ "$dueno" == root ]]; then
+    "$@"
+  else
+    runuser -u "$dueno" -- env HOME="$(getent passwd "$dueno" | cut -d: -f6)" "$@"
+  fi
+}
+
+buscar_version_nueva() {
+  [[ "$BUSCAR_VERSION" != no && -f "$CONFIG" ]] || return 0
+  command -v git >/dev/null && como_dueno git -C "$ORIGEN" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  local rama remota atrasados
+  rama="$(como_dueno git -C "$ORIGEN" symbolic-ref --quiet --short HEAD)" ||
+    { aviso "La carpeta no está en una rama de git: no se revisa si hay una versión nueva."; return 0; }
+  remota="$(como_dueno git -C "$ORIGEN" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" ||
+    remota="origin/$rama"
+
+  paso "Revisando si hay una versión nueva en GitHub"
+  # Con terminal, git puede pedir usuario y clave si el repositorio es privado;
+  # sin ella, que falle en vez de quedarse esperando.
+  local pedir_clave=0 error
+  [[ -t 0 ]] && pedir_clave=1
+  if ! error="$(como_dueno timeout --foreground 120 env GIT_TERMINAL_PROMPT=$pedir_clave \
+    git -C "$ORIGEN" fetch --quiet "${remota%%/*}" 2>&1 >/dev/null)"; then
+    aviso "No se pudo consultar GitHub: se sigue con la versión de esta carpeta."
+    if [[ -n "$error" ]]; then
+      aviso "$(grep -m 1 -E '^(fatal|error):' <<<"$error" || head -n 1 <<<"$error")"
+    else
+      aviso "(GitHub no respondió: ¿hay conexión?)"
+    fi
+    return 0
+  fi
+  if ! atrasados="$(como_dueno git -C "$ORIGEN" rev-list --count "HEAD..$remota" 2>/dev/null)"; then
+    aviso "No encuentro la rama $remota: se sigue con la versión de esta carpeta."
+    return 0
+  fi
+  if ((atrasados == 0)); then
+    echo "    Esta es la versión más reciente ($(como_dueno git -C "$ORIGEN" log -1 --format='%h, %cd' --date=short))."
+    return 0
+  fi
+
+  echo "    Hay una versión nueva en $remota: $atrasados cambio(s) que esta carpeta no tiene."
+  # Sin paginador: en una terminal, «less» se quedaría con la respuesta.
+  como_dueno git -C "$ORIGEN" --no-pager log --no-color --format='      %cd  %s' --date=short -n 10 "HEAD..$remota"
+  ((atrasados <= 10)) || echo "      … y $((atrasados - 10)) más"
+  if [[ "$BUSCAR_VERSION" == preguntar ]]; then
+    if [[ ! -t 0 ]]; then
+      aviso "Sin terminal no puedo preguntar: se sigue con la versión de esta carpeta."
+      aviso "Para traer la nueva sin preguntar: sudo ./instalar-servidor.sh --actualizar"
+      return 0
+    fi
+    local respuesta
+    read -rp "    ¿Actualizar a la versión nueva antes de seguir? [S/n]: " respuesta || respuesta=n
+    case "${respuesta:-s}" in
+      [sS]*) ;;
+      *) echo "    Se sigue con la versión de esta carpeta."; return 0 ;;
+    esac
+  fi
+
+  if ! como_dueno git -C "$ORIGEN" merge --ff-only --quiet "$remota"; then
+    aviso "No se pudo traer la versión nueva: esta carpeta tiene cambios propios que chocan con ella."
+    aviso "Revíselos con: cd $ORIGEN && git status"
+    if [[ -t 0 ]]; then
+      local seguir
+      read -rp "    ¿Seguir con la versión de esta carpeta? [s/N]: " seguir || seguir=n
+      [[ "${seguir:-n}" == [sS]* ]] || fallar "actualización cancelada: no se cambió nada"
+    else
+      fallar "actualización cancelada: no se cambió nada"
+    fi
+    return 0
+  fi
+  echo "    Actualizado a $(como_dueno git -C "$ORIGEN" log -1 --format='%h (%s)')"
+  # Este mismo script pudo cambiar: sigue la versión nueva, con las mismas opciones.
+  NETDOC_VERSION_REVISADA=1 exec bash "$ORIGEN/instalar-servidor.sh" "${ARGUMENTOS[@]}"
+}
+buscar_version_nueva
+
 if [[ -n "$CERTIFICADO$CLAVE_CERTIFICADO" ]]; then
   [[ -r "$CERTIFICADO" && -r "$CLAVE_CERTIFICADO" ]] ||
     fallar "--certificado y --clave-certificado van juntos y deben ser archivos legibles"
@@ -225,12 +322,18 @@ install -m 755 "$APP/deploy/servidor/netdoc" /usr/local/bin/netdoc
 
 # --- Dependencias -------------------------------------------------------------------
 if [[ "$BASE" == postgresql ]]; then BLOQUEO="$APP/backend/requirements-postgres.lock"; else BLOQUEO="$APP/backend/requirements.lock"; fi
+BLOQUEO_OCR="$APP/backend/requirements-ocr.lock"
 [[ -x "$PY" ]] || { paso "Creando el entorno de Python"; python3 -m venv "$APP/backend/.venv"; }
 SELLO_PY="$APP/backend/.venv/.netdoc-requisitos"
-HUELLA_PY="$(huella "$BLOQUEO")"
+HUELLA_PY="$(huella "$BLOQUEO" "$BLOQUEO_OCR")"
 if [[ ! -f "$SELLO_PY" || "$(<"$SELLO_PY")" != "$HUELLA_PY" ]]; then
   paso "Instalando dependencias del backend (versiones y sumas fijadas)"
   "$PY" -m pip install --disable-pip-version-check -q --require-hashes -r "$BLOQUEO"
+  # El OCR que lee las salas de los planos que se cargan desde el visor (unos
+  # 400 MB). Sin --no-deps, pip pediría el OpenCV con interfaz gráfica, que
+  # necesita libGL: va el de servidor.
+  echo "    OCR para leer las salas de los planos"
+  "$PY" -m pip install --disable-pip-version-check -q --require-hashes --no-deps -r "$BLOQUEO_OCR"
   echo "$HUELLA_PY" >"$SELLO_PY"
 fi
 

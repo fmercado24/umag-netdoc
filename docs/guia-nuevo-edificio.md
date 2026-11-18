@@ -19,7 +19,7 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 | 1 | Confirmar el código del edificio | Tabla de la sección 1 | `ING` existe en el catálogo |
 | 2 | Crear la carpeta del edificio | `cp -r data/_plantilla data/ing` | `data/ing/` con las plantillas |
 | 3 | Llenar las planillas en terreno | Excel o Google Sheets → CSV | `ing-p01-t1.csv`, `ing-puntos-de-datos.csv`… |
-| 4 | Preparar las láminas y leer sus recintos | `preparar_laminas ING --aplicar`, `extraer_recintos ING` | Láminas SVG horizontales y `ing-recintos.csv` con los números de sala |
+| 4 | Preparar las láminas y leer sus recintos | `preparar_laminas ING --aplicar`, `extraer_recintos ING` | Láminas SVG horizontales y `ing-recintos.csv` con los códigos de sala |
 | 5 | Ensayar la importación | `importar_edificio ING --solo-advertencias` | Informe sin discrepancias graves |
 | 6 | Importar | `importar_edificio ING` (o `./iniciar.sh`) | "Importación completada" |
 | 7 | Cargar planos y fotos | `cargar_planos ING`, `cargar_fotografias ING` (o `./iniciar.sh`) | Planos vigentes por piso o tramo, y cada elemento en su recinto |
@@ -34,9 +34,10 @@ Los pasos 6 y 7 los hace solo `./iniciar.sh` para cualquier edificio **nuevo**
 visor y use **Cargar planos**. Con los nombres de las láminas (sección 4) se crean sus
 pisos y tramos, y los elementos se agregan después desde el mismo visor. Mientras no
 tenga elementos, **Agregar o quitar planos**, en el panel lateral, permite subir los que
-falten o quitarlos todos para empezar de nuevo. Lo que este
-camino no hace es leer los números de sala de las láminas (sección 4.1): para eso, deje
-también las láminas en `data/<p>/planos/` y corra `extraer_recintos`.
+falten o quitarlos todos para empezar de nuevo. Al confirmar la carga, el sistema **lee
+solo las salas de cada plano** con OCR, con el código que trae el plano (sección 4.1):
+toma alrededor de un minuto por plano y, mientras tanto, el visor lo avisa sobre el
+plano. Después, el N° de recinto de cada elemento lo ubica en su sala.
 
 ---
 
@@ -325,31 +326,58 @@ resultado no le convence, copie el original de vuelta. Ábralas en el navegador
 Las dimensiones de la lámina fijan el sistema de coordenadas de las posiciones:
 **prepare las láminas antes de ubicar elementos**, no después.
 
-### 4.1 Recintos: los números de sala de cada lámina
+### 4.1 Recintos: los códigos de sala de cada lámina
 
-Cada sala de los planos lleva su número bajo el nombre, y el número dice el
-piso: los recintos del subterráneo empiezan con `00` (`0017`), los del primer
-piso con `1` (`1083`), los del segundo con `2`, y así. Con ese número, el que
-las planillas anotan en la ubicación, **cada elemento queda solo en su sala**:
-los puntos de datos de una sala en un solo marcador que se despliega, los
-equipos uno junto al otro y cada rack sobre su rótulo de la lámina
-(«RACK 08»).
+Cada sala de los planos lleva un código en su rótulo, y **cada edificio lo escribe a su
+manera**: la universidad no tiene un estándar único. El sistema guarda cada código tal
+como lo escribe el plano, y con él, el que las planillas anotan en la ubicación o el que
+se escribe en *N° de recinto*, **cada elemento queda solo en su sala**: los puntos de
+datos de una sala en un solo marcador que se despliega, los equipos uno junto al otro y
+cada rack sobre su rótulo de la lámina («RACK 08»).
 
-Las láminas de CAD traen el texto convertido en trazos, así que el sistema las
-lee con OCR, una vez por versión de cada lámina:
+| Edificio | Rótulo en el plano | Código que se guarda | Qué se exige |
+|---|---|---|---|
+| CADI | `SECRETARÍA RECEPCIÓN` / `1082` (el número bajo el nombre) | `1082`, `1083.2` | Que sea del piso: los del subterráneo empiezan con `00` (`0017`), los del primero con `1`, los del segundo con `2`… |
+| Biblioteca | `E.` / `09` / `Oficina administrativa` (categoría, número y nombre debajo) | `09`, `25A` | Nada más: los números empiezan de nuevo en cada piso |
+
+El OCR reconoce en cada lámina cómo rotula sus salas: un rótulo es un código corto
+(cifras, a veces con una letra o un decimal) con el nombre justo encima o justo debajo,
+y la forma que más se repite dice cuál es la del edificio. Lo que no tiene esa forma
+(cotas, la viñeta, la simbología) no se toma como sala.
+
+Al escribir el N° de recinto en el visor vale el código de la lámina, y el campo sugiere
+los del piso. Se acepta también escrito de otra manera y se guarda como lo escribe la
+lámina: `9` → `09`, `25a` → `25A`, y la nomenclatura completa que trae la nota de las
+láminas de la Biblioteca, `BC-01-09-E` → `09`. Un código que no está en la lámina (un
+rótulo que el OCR no leyó) se acepta igual: el elemento se ubica con un clic.
+
+**Los planos cargados desde el visor se leen solos** al confirmar la carga, en segundo
+plano. Si la lectura falla, o el servidor no tenía el OCR, el visor lo avisa sobre el
+plano con el botón **Leer las salas**. `instalar-servidor.sh` instala el OCR; en
+desarrollo, instálelo con `requirements-ocr.txt` y reinicie: lee solo lo que esperaba.
+
+Para las láminas de `data/<p>/planos/`, que pasan por las planillas, el OCR se corre una
+vez por versión de cada lámina:
 
 ```bash
 cd backend
 .venv/bin/python -m pip install -r requirements-ocr.txt   # una vez (~400 MB)
 .venv/bin/python -m app.scripts.extraer_recintos ING
 #   ing-p01-t1.svg: 58 recintos (1 en la segunda lectura), racks R01, R02 (55 s)
+#     · rotulado: números de cuatro cifras que dicen el piso, bajo el nombre de la sala
 #   …
 #   Recintos de las planillas que no aparecen en las láminas de su piso (1):
 #     - P01 1063 «Recepción 1063» → en la lámina: 1082 (SECRETARÍA RECEPCIÓN)
 ```
 
+Un número tapado por una línea del dibujo (la X de un hall o una silla) no se alcanza a
+leer en la lámina completa: la segunda lectura vuelve a leer, solo y más grande, donde
+iría el código de cada nombre de sala que quedó sin uno. En la Biblioteca recupera 6 de
+las 7 salas que faltaban; la que queda (la 32, en el piso 1) tiene dos rótulos
+superpuestos en el dibujo.
+
 El resultado queda en `data/ing/ing-recintos.csv`, con una fila por recinto:
-lámina, número, nombre, `x` e `y` (el punto bajo el número donde se dibujan
+lámina, número, nombre, `x` e `y` (el punto bajo el rótulo donde se dibujan
 sus elementos) y la huella de la lámina leída. Revíselo como una planilla más:
 
 - **Un recinto de las planillas que no aparece** es un número mal transcrito
@@ -540,6 +568,8 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | `… se leyó de otra versión de «…»` al arrancar | La lámina cambió después de leer sus recintos | `extraer_recintos ING <lámina>` |
 | Un elemento con número de recinto queda *sin ubicar* | El número no está en las láminas de su piso (o el OCR no lo leyó) | Revise el informe de `extraer_recintos`: corrija el N° de recinto en el visor o agregue la fila a `ing-recintos.csv` |
 | `Falta el OCR para leer las láminas` | No se instaló la dependencia opcional | `cd backend && .venv/bin/python -m pip install -r requirements-ocr.txt` |
+| El visor dice que el servidor no tiene el OCR | Se instaló con una versión anterior de `instalar-servidor.sh` | Actualice con `sudo ./instalar-servidor.sh`, que trae la versión nueva de GitHub: al arrancar, lee las salas que esperaban |
+| Una sala no quedó entre los recintos del plano | El OCR no alcanzó a leer su código (rótulos superpuestos o tapados) | Escriba igual su N° de recinto y ubique el elemento con un clic |
 
 ## Glosario
 
@@ -554,5 +584,6 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
   en las planillas; requiere verificación en terreno.
 - **Completitud:** porcentaje de atributos obligatorios del SOP §9 que tiene la
   ficha de un elemento.
-- **Recinto:** sala rotulada en la lámina con su número (`1083`; `0017` en el
-  subterráneo). Es lo que ubica a los elementos en el plano sin hacer clic.
+- **Recinto:** sala rotulada en la lámina con su código, como lo escribe cada
+  edificio (`1083` y `0017` en el CADI; `09` y `25A` en la Biblioteca). Es lo que
+  ubica a los elementos en el plano sin hacer clic.

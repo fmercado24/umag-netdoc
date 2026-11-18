@@ -145,7 +145,9 @@ class Elemento(Base, MixinTiempos):
     padre: Mapped["Elemento | None"] = relationship(
         remote_side="Elemento.id", back_populates="hijos"
     )
-    hijos: Mapped[list["Elemento"]] = relationship(back_populates="padre")
+    #: En el orden en que se registraron: sin él, PostgreSQL los devuelve en el
+    #: orden en que quedaron guardados, que cambia con cada modificación.
+    hijos: Mapped[list["Elemento"]] = relationship(back_populates="padre", order_by="Elemento.id")
 
     fotografias: Mapped[list["Fotografia"]] = relationship(
         back_populates="elemento", cascade="all, delete-orphan", order_by="Fotografia.orden"

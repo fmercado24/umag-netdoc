@@ -54,6 +54,12 @@ class PlanoLeer(BaseModel):
     notas: str | None = None
     #: Nulo mientras no se generen: el visor muestra entonces la lámina original.
     teselas: TeselasLeer | None = None
+    #: Cuántas salas (y racks rotulados) tiene, para ubicar los elementos.
+    cantidad_recintos: int = 0
+    #: La lectura de sus salas con OCR: pendiente, leyendo, lista, fallida o
+    #: sin_ocr; nula si sus recintos vienen de <edificio>-recintos.csv.
+    lectura_recintos: str | None = None
+    lectura_aviso: str | None = None
 
     @model_validator(mode="after")
     def _con_teselas(self) -> PlanoLeer:

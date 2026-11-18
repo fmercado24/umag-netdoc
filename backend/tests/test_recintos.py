@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.scripts import cargar_planos, importar_edificio
-from app.scripts.extraer_recintos import (
+from app.servicios.ocr_recintos import (
     Lectura,
     como_numero,
     es_el_numero_esperado,

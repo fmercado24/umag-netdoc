@@ -21,6 +21,7 @@ import {
   Campo,
   ControlAtributo,
   convertirAtributo,
+  ejemplosDeRecinto,
   erroresDelServidor,
   leerUsuario,
   recordarUsuario,
@@ -481,10 +482,9 @@ export function FormularioElemento({
         <>
           <input
             type="text"
-            inputMode="decimal"
             list={`recintos-${detalle.id}`}
             value={base.numero_recinto}
-            placeholder="Ej.: 1083"
+            placeholder={ejemplosDeRecinto(recintos).numero}
             onChange={(e) => cambiarBase('numero_recinto', e.target.value)}
           />
           <datalist id={`recintos-${detalle.id}`}>
@@ -497,7 +497,7 @@ export function FormularioElemento({
         </>,
         detalle.montado
           ? 'Montado en su rack: se ve donde esté el rack.'
-          : 'El número de la sala en el plano. Al guardar, el elemento se ubica en ese recinto.',
+          : 'El código de la sala tal como aparece en el plano. Al guardar, el elemento se ubica en ese recinto.',
       )}
       {admiteRack &&
         campo(

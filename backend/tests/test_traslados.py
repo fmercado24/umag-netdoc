@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.models import Elemento, Enlace, Piso, Plano
+from app.models import Elemento, Enlace, Piso, Plano, Recinto
 from app.servicios.monitoreo import buscar_elemento
 
 API = "/api/v1"
@@ -350,9 +350,13 @@ def test_su_marcador_solo_sigue_valiendo_en_la_misma_lamina(cliente, sesion):
     assert (movido["pos_x"], movido["pos_y"], movido["plano_id"]) == (None, None, None)
 
 
-def test_el_recinto_se_borra_al_cambiar_de_piso_y_se_valida_el_nuevo(cliente):
+def test_el_recinto_se_borra_al_cambiar_de_piso_y_se_valida_el_nuevo(cliente, sesion):
     _piso(cliente, "P07", "T1")
     _piso(cliente, "P08", "T1", "T2")
+    # Las salas de P08 siguen la numeración por piso del CADI.
+    plano = sesion.get(Plano, _lamina(sesion, "P08"))
+    plano.recintos.append(Recinto(numero="8090", nombre="BODEGA", pos_x=10, pos_y=10))
+    sesion.commit()
     codigo = _alta(
         cliente,
         tipo="AP",

@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 
 import { ErrorApi } from '../api/cliente'
-import type { DefinicionAtributo } from '../types'
+import type { DefinicionAtributo, Recinto } from '../types'
 
 /** Un rack no va dentro de otro y un punto de datos no tiene contenedor. */
 export const SIN_RACK = new Set(['R', 'PD'])
@@ -16,6 +16,24 @@ export const ATRIBUTOS_AUTOMATICOS = new Set(['puerto_origen'])
 
 /** Quién registra: se recuerda en este navegador para no escribirlo cada vez. */
 const CLAVE_USUARIO = 'netdoc.usuario'
+
+/**
+ * Una sala del piso para los ejemplos de los campos, con el código que trae su
+ * plano («1083» en el CADI, «09» en la Biblioteca); nada si aún no hay salas.
+ */
+export function ejemploDeSala(recintos: Recinto[]): Recinto | undefined {
+  return recintos.find((r) => !/^R\d{2,3}$/.test(r.numero))
+}
+
+/** Los ejemplos de Ubicación y N° de recinto, con una sala del piso si la hay. */
+export function ejemplosDeRecinto(recintos: Recinto[]): { ubicacion: string; numero: string } {
+  const sala = ejemploDeSala(recintos)
+  if (!sala) return { ubicacion: 'Ej.: Oficina 1083', numero: 'Ej.: 1083' }
+  return {
+    ubicacion: `Ej.: ${sala.nombre ?? 'Oficina'} ${sala.numero}`,
+    numero: `Ej.: ${sala.numero}`,
+  }
+}
 
 export function leerUsuario(): string {
   try {

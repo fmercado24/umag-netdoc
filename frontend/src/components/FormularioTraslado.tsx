@@ -12,6 +12,7 @@ import type { FormEvent } from 'react'
 import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from '../api/cliente'
 import {
   Campo,
+  ejemplosDeRecinto,
   erroresDelServidor,
   leerUsuario,
   recordarUsuario,
@@ -263,21 +264,20 @@ export function FormularioTraslado({
             <input
               type="text"
               value={ubicacion}
-              placeholder="Ej.: Oficina 1083"
+              placeholder={ejemplosDeRecinto(recintos).ubicacion}
               onChange={(e) => setUbicacion(e.target.value)}
             />
           </Campo>
           <Campo
             etiqueta="N° de recinto"
             error={errores.numero_recinto}
-            ayuda="Con el número de una sala del plano, queda ubicado ahí. Sin él, podrás marcarlo con un clic."
+            ayuda="El código de la sala tal como aparece en el plano: con él queda ubicado ahí. Sin él, podrás marcarlo con un clic."
           >
             <input
               type="text"
-              inputMode="decimal"
               list="recintos-traslado"
               value={recinto}
-              placeholder="Ej.: 1083"
+              placeholder={ejemplosDeRecinto(recintos).numero}
               onChange={(e) => setRecinto(e.target.value)}
             />
             <datalist id="recintos-traslado">

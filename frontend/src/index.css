@@ -665,6 +665,71 @@ code {
   font-size: 12px;
 }
 
+/* En qué va la lectura de las salas del plano (components/AvisoSalas.tsx). */
+.aviso-salas {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, calc(100% - 32px));
+  padding: 8px 12px;
+  background: var(--superficie);
+  border: 1px solid var(--borde-control);
+  border-left: 4px solid var(--acento);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  font-size: 13px;
+  color: var(--tinta);
+}
+
+.aviso-salas--alerta {
+  background: #fffbeb;
+  border-color: #d97706;
+  border-left-color: #b45309;
+  color: #78350f;
+}
+
+.aviso-salas .boton {
+  flex: none;
+}
+
+.aviso-salas__giro {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--acento-suave);
+  border-top-color: var(--acento);
+  border-radius: 50%;
+  animation: aviso-salas-giro 0.9s linear infinite;
+}
+
+@keyframes aviso-salas-giro {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aviso-salas__giro {
+    animation: none;
+  }
+}
+
+.aviso-salas__cerrar {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .marcador-envoltorio {
   background: none;
   border: 0;

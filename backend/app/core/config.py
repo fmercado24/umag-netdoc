@@ -61,6 +61,11 @@ class Configuracion(BaseSettings):
     #: con las láminas grandes; sin ellas, el visor muestra la lámina original.
     teselas: bool = True
 
+    #: Leer con OCR las salas de los planos que se cargan desde el visor
+    #: (app.servicios.lectura_recintos), si el OCR está instalado
+    #: (requirements-ocr.txt). Toma alrededor de un minuto por plano.
+    leer_recintos: bool = True
+
     # --- Acceso (app.servicios.autenticacion) ------------------------------
     #: Administrador principal.
     admin_usuario: str = "admin-netdoc"

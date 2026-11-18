@@ -56,11 +56,19 @@ export interface Plano {
   notas: string | null
   /** Nulo mientras no se generen: se muestra la lámina original, más lenta. */
   teselas: Teselas | null
+  /** Cuántas salas (y racks rotulados) tiene, para ubicar los elementos. */
+  cantidad_recintos: number
+  /** La lectura de sus salas con OCR; nula si vienen de `<edificio>-recintos.csv`. */
+  lectura_recintos: LecturaRecintos | null
+  /** Cómo terminó la lectura: cuántas salas, o por qué no se pudo. */
+  lectura_aviso: string | null
 }
+
+export type LecturaRecintos = 'pendiente' | 'leyendo' | 'lista' | 'fallida' | 'sin_ocr'
 
 /** Sala dibujada en una lámina, con el punto donde se ubican sus elementos. */
 export interface Recinto {
-  /** Como lo rotula el plano: "1083", "0017". */
+  /** Como lo rotula el plano: "1083" y "0017" en el CADI, "09" y "25A" en la Biblioteca. */
   numero: string
   nombre: string | null
   plano_id: number

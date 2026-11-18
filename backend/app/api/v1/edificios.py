@@ -25,7 +25,7 @@ from app.api.deps import (
     obtener_tramo,
 )
 from app.core.config import DIR_PROYECTO
-from app.models import Edificio, OrigenCambio, Piso, Tramo
+from app.models import Edificio, OrigenCambio, Piso, Plano, Tramo
 from app.schemas.organizacion import (
     CargaConfirmada,
     CargaDePlanos,
@@ -41,7 +41,7 @@ from app.schemas.organizacion import (
     TramoCrear,
     TramoLeer,
 )
-from app.servicios import carga_planos
+from app.servicios import carga_planos, lectura_recintos
 from app.servicios.novedades import marca_del_edificio
 from app.servicios.planos import (
     FormatoNoAdmitido,
@@ -264,11 +264,15 @@ def confirmar_carga_de_planos(codigo: str, sesion: SesionBD, tareas: BackgroundT
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except (FormatoNoAdmitido, SvgInvalido, NombreLaminaInvalido) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    # Las salas de cada plano se leen con OCR después de responder.
+    leer = [plano for plano in resultado.planos if lectura_recintos.marcar_para_leer(plano)]
     sesion.flush()
     # Las tareas corren cuando la respuesta ya salió y lo nuevo quedó guardado.
     tareas.add_task(carga_planos.descartar_todo, edificio.codigo)
     for plano in resultado.planos:
         tareas.add_task(asegurar_teselas, plano.archivo, plano.ancho_px)
+    for plano in leer:
+        tareas.add_task(lectura_recintos.leer_recintos_del_plano, plano.id)
     return CargaConfirmada(
         pisos=resultado.pisos,
         tramos=resultado.tramos,
@@ -351,4 +355,36 @@ def cargar_plano(
     sesion.expire(piso, ["planos"])
     sincronizar_y_ubicar(sesion, edificio, DIR_PROYECTO / "data" / edificio.codigo.lower())
     tareas.add_task(asegurar_teselas, plano.archivo, plano.ancho_px)
+    # Sin recintos de ese archivo, sus salas se leen con OCR.
+    if not plano.recintos and lectura_recintos.marcar_para_leer(plano):
+        tareas.add_task(lectura_recintos.leer_recintos_del_plano, plano.id)
+    return plano
+
+
+@router.post("/{codigo}/planos/{plano_id}/leer-recintos", response_model=PlanoLeer)
+def leer_recintos(codigo: str, plano_id: int, sesion: SesionBD, tareas: BackgroundTasks):
+    """Vuelve a leer con OCR las salas del plano, en segundo plano.
+
+    Sirve cuando la lectura falló o el servidor aún no tenía el OCR. No se
+    ofrece para los planos cuyos recintos vienen de ``<edificio>-recintos.csv``,
+    que alguien revisó a mano: esos se releen con ``extraer_recintos``.
+    """
+    edificio = obtener_edificio(sesion, codigo)
+    plano = sesion.get(Plano, plano_id)
+    if plano is None or plano.piso.edificio_id != edificio.id or not plano.vigente:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"El edificio {edificio.codigo} no tiene ese plano vigente"
+        )
+    if (motivo := lectura_recintos.puede_leer()) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, motivo)
+    if plano.lectura_recintos in lectura_recintos.EN_CURSO:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Las salas de este plano ya se están leyendo.")
+    if plano.lectura_recintos is None and plano.recintos:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Las salas de este plano vienen de {edificio.codigo.lower()}-recintos.csv. Para "
+            f"leerlas de nuevo: python -m app.scripts.extraer_recintos {edificio.codigo}",
+        )
+    lectura_recintos.marcar_para_leer(plano)
+    tareas.add_task(lectura_recintos.leer_recintos_del_plano, plano.id)
     return plano

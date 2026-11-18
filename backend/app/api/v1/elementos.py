@@ -86,11 +86,16 @@ from app.servicios.fotografias import FormatoFotoNoAdmitido, guardar_fotografia
 from app.servicios.historial import registrar_alta, registrar_cambios
 from app.servicios.novedades import marca_del_edificio
 from app.servicios.recintos import (
+    RE_CODIGO_EN_TEXTO,
+    buscar_codigo,
     buscar_recinto,
+    codigos_del_piso,
     corresponde_al_piso,
+    normalizar_codigo,
     normalizar_numero,
     numero_de_recinto,
     prefijo_de_piso,
+    sigue_numeracion_por_piso,
     ubicar_en_recinto,
     ubicar_pendientes,
 )
@@ -204,27 +209,51 @@ def _error_de_campo(campo: str, mensaje: str) -> HTTPException:
     )
 
 
-def _validar_numero_recinto(valor: str | None, codigo_piso: str) -> str | None:
+def _validar_numero_recinto(valor: str | None, piso: Piso) -> str | None:
     """El número de recinto como se guarda, o None si se dejó vacío.
 
-    Debe ser del piso del elemento: los recintos del subterráneo empiezan con
-    00, los del primer piso con 1, los del segundo con 2…
+    Es el código de la sala tal como lo escribe la lámina: «1083» en el CADI,
+    «09» o «25A» en la Biblioteca. Si es una de las salas leídas de las
+    láminas del piso, se guarda como lo escribe la lámina («9» → «09»,
+    «BC-01-09-E» → «09»). Si el piso sigue la numeración por piso del CADI,
+    además debe ser de ese piso: los recintos del subterráneo empiezan con 00,
+    los del primer piso con 1, los del segundo con 2…
     """
     if valor is None or not valor.strip():
         return None
-    numero = normalizar_numero(valor)
-    if numero is None:
-        raise _error_de_campo(
-            "numero_recinto", "debe ser el número de la sala en el plano, como 1083 o 1083.2"
-        )
-    if not corresponde_al_piso(numero, codigo_piso):
-        prefijo = prefijo_de_piso(codigo_piso)
+    conocidos = codigos_del_piso(piso)
+    if conocido := buscar_codigo(valor.strip(), conocidos):
+        return conocido
+    if sigue_numeracion_por_piso(piso):
+        numero = normalizar_numero(valor)
+        if numero is None:
+            raise _error_de_campo(
+                "numero_recinto", "debe ser el número de la sala en el plano, como 1083 o 1083.2"
+            )
+        if not corresponde_al_piso(numero, piso.codigo):
+            prefijo = prefijo_de_piso(piso.codigo)
+            raise _error_de_campo(
+                "numero_recinto",
+                f"no es un recinto del piso {piso.codigo}"
+                + (f": sus números empiezan con {prefijo}" if prefijo else ""),
+            )
+        return numero
+    if conocidos and (en_el_texto := numero_de_recinto(valor, piso.codigo, conocidos)):
+        return en_el_texto
+    # «Sala 9» → 09 si la lámina la tiene; si no, «Sala 77» → 77. «BC-01-09-E»
+    # se guarda entero y, cuando se lean las salas del piso, el elemento queda
+    # en la 09.
+    partes = RE_CODIGO_EN_TEXTO.findall(valor)
+    if partes and (conocido := buscar_codigo(partes[-1], conocidos)):
+        return conocido
+    codigo = normalizar_codigo(partes[-1] if partes and " " in valor.strip() else valor)
+    if codigo is None:
+        ejemplos = " o ".join(conocidos[:2]) if conocidos else "09 o 25A"
         raise _error_de_campo(
             "numero_recinto",
-            f"no es un recinto del piso {codigo_piso}"
-            + (f": sus números empiezan con {prefijo}" if prefijo else ""),
+            f"debe ser el código de la sala tal como aparece en el plano, como {ejemplos}",
         )
-    return numero
+    return codigo
 
 
 def _cambios_de_lamina(sesion, elemento: Elemento, codigo_tramo: str | None) -> dict:
@@ -660,8 +689,8 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.errores) from exc
 
     # Sin número explícito, el que trae la ubicación («Oficina 1083»).
-    numero_recinto = _validar_numero_recinto(datos.numero_recinto, piso.codigo) or (
-        numero_de_recinto(datos.ubicacion_descriptiva, piso.codigo)
+    numero_recinto = _validar_numero_recinto(datos.numero_recinto, piso) or (
+        numero_de_recinto(datos.ubicacion_descriptiva, piso.codigo, codigos_del_piso(piso))
     )
 
     elemento = Elemento(
@@ -804,15 +833,15 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
     # Al cambiar el número de recinto, el elemento pasa a ese recinto.
     reubicar = False
     if "numero_recinto" in entrada:
-        numero = _validar_numero_recinto(entrada.pop("numero_recinto"), elemento.piso.codigo)
+        numero = _validar_numero_recinto(entrada.pop("numero_recinto"), elemento.piso)
         cambios["numero_recinto"] = numero
         reubicar = numero is not None and numero != elemento.numero_recinto
     elif entrada.get("ubicacion_descriptiva"):
         # Una ubicación que trae su número también sirve («Sala Eléctrica
         # 2045»), salvo que el número se haya escrito aparte: ese manda.
-        codigo_piso = elemento.piso.codigo
-        anterior = numero_de_recinto(elemento.ubicacion_descriptiva, codigo_piso)
-        numero = numero_de_recinto(entrada["ubicacion_descriptiva"], codigo_piso)
+        codigo_piso, conocidos = elemento.piso.codigo, codigos_del_piso(elemento.piso)
+        anterior = numero_de_recinto(elemento.ubicacion_descriptiva, codigo_piso, conocidos)
+        numero = numero_de_recinto(entrada["ubicacion_descriptiva"], codigo_piso, conocidos)
         sigue_al_texto = elemento.numero_recinto in (None, anterior)
         if numero and numero != elemento.numero_recinto and sigue_al_texto:
             cambios["numero_recinto"] = numero
@@ -1038,14 +1067,14 @@ def _aplicar_traslado(
     cambia_de_piso = plan.cambia_de_piso
 
     if "numero_recinto" in indicados:
-        numero = _validar_numero_recinto(indicados["numero_recinto"], piso.codigo)
+        numero = _validar_numero_recinto(indicados["numero_recinto"], piso)
     else:
         numero = None if cambia_de_piso else elemento.numero_recinto
     if "ubicacion_descriptiva" in indicados:
         ubicacion = (indicados["ubicacion_descriptiva"] or "").strip() or None
         # Una ubicación que trae su número también sirve («Oficina 2045»).
         if "numero_recinto" not in indicados or numero is None:
-            numero = numero_de_recinto(ubicacion, piso.codigo) or numero
+            numero = numero_de_recinto(ubicacion, piso.codigo, codigos_del_piso(piso)) or numero
     else:
         ubicacion = None if cambia_de_piso else elemento.ubicacion_descriptiva
 

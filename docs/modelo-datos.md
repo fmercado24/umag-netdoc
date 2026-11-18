@@ -267,21 +267,31 @@ Cada sala de los planos de la DSI lleva su número bajo el nombre
 anotan ese mismo número en la ubicación de cada elemento («Oficina 1083»), así
 que el sistema puede dibujar cada elemento en su sala sin que nadie haga clic.
 
-**`elemento.numero_recinto`.** El número de la sala donde está, separado del
-texto de la ubicación. El importador lo toma de la ubicación, y solo si es del
-piso del elemento: en «Oficina 1039/2018» del primer piso es 1039, y
-«Box Fisiopatología 2022» en el tercer piso no tiene número (2022 es del
-segundo: el importador lo informa como error de transcripción). En el visor se
-completa o corrige en la ficha (*Editar → N° de recinto*); al guardarlo, el
-elemento pasa a ese recinto.
+**`elemento.numero_recinto`.** El código de la sala donde está, separado del
+texto de la ubicación y tal como lo escribe la lámina: `1083` en el CADI, `09` o
+`25A` en la Biblioteca. El importador lo toma de la ubicación, y en un piso con
+la numeración del CADI solo si es del piso del elemento: en «Oficina 1039/2018»
+del primer piso es 1039, y «Box Fisiopatología 2022» en el tercer piso no tiene
+número (2022 es del segundo: el importador lo informa como error de
+transcripción). En el visor se completa o corrige en la ficha (*Editar → N° de
+recinto*); al guardarlo, el elemento pasa a ese recinto. Lo escrito de otra
+manera se guarda como lo escribe la lámina (`9` → `09`, `BC-01-09-E` → `09`), y
+un código que la lámina no tiene se acepta igual: el elemento se ubica con un
+clic. Si se escribió antes de que se leyeran las salas del plano, al leerlas el
+elemento pasa a su sala y su número queda como el de la lámina.
 
 **`recinto`.** Las láminas de CAD traen el texto convertido en trazos, así que
-los números se leen como imagen: `app.scripts.extraer_recintos` dibuja cada
-lámina y la pasa por un OCR. Lo leído queda en `data/<código>/<código>-recintos.csv`
-(lámina, número, nombre, x, y, huella), que se revisa y versiona como una
-planilla más, y al cargar las láminas se copia a esta tabla. `pos_x` y `pos_y`
-no son el rótulo, sino el punto justo bajo el número donde se dibujan los
-marcadores.
+los rótulos se leen como imagen, con OCR (`app.servicios.ocr_recintos`), que
+reconoce en cada lámina cómo rotula sus salas: el código con el nombre encima
+(CADI) o debajo (Biblioteca), y cuántas cifras tiene. Los planos cargados desde
+el visor se leen solos y lo leído va directo a esta tabla
+(`app.servicios.lectura_recintos`); `plano.lectura_recintos` dice en qué va
+(`pendiente`, `leyendo`, `lista`, `fallida` o `sin_ocr`) y `plano.lectura_aviso`
+cómo terminó. Los de `data/` se leen con `app.scripts.extraer_recintos`, que
+deja lo leído en `data/<código>/<código>-recintos.csv` (lámina, número, nombre,
+x, y, huella): se revisa y versiona como una planilla más, y al cargar las
+láminas se copia a esta tabla. `pos_x` y `pos_y` no son el rótulo, sino el
+punto justo bajo él donde se dibujan los marcadores.
 
 Cada recinto pertenece a una **versión** del plano: la huella del CSV
 (`sha256` de la lámina tal como se guarda) debe coincidir con la del plano

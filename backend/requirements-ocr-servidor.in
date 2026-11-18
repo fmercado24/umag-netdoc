@@ -1,0 +1,5 @@
+# El OCR que instala instalar-servidor.sh para leer las salas de los planos
+# (app.servicios.lectura_recintos). Es requirements-ocr.txt con OpenCV sin
+# interfaz gráfica: la versión común necesita libGL, que un servidor no trae.
+rapidocr_onnxruntime==1.2.3
+opencv-python-headless

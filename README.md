@@ -32,7 +32,7 @@ Construcción desde cero (no extensión de NetBox):
 | Migraciones | Alembic | El mismo esquema versionado en SQLite y PostgreSQL; `render_as_batch` para los `ALTER TABLE` de SQLite |
 | Acceso | Argon2id, sesiones en la base, CSP, HTTPS | Administrador y otros usuarios, que pueden limitarse a un edificio; nada accesible sin ingresar. Ver [docs/seguridad.md](docs/seguridad.md) |
 | Integraciones | Prometheus, Alertmanager, Grafana, Zabbix | Métricas, descubrimiento de objetivos, webhooks de estado y conector de hosts; ver [docs/integraciones.md](docs/integraciones.md) |
-| Lectura de láminas | RapidOCR (opcional, `requirements-ocr.txt`) | Lee los números de sala y los rótulos de racks de las láminas de CAD, cuyo texto viene convertido en trazos. Solo lo necesita quien prepara las láminas |
+| Lectura de láminas | RapidOCR (`requirements-ocr.txt`; el servidor lo instala) | Lee los códigos de sala, con la nomenclatura de cada plano, y los rótulos de racks de las láminas de CAD, cuyo texto viene convertido en trazos |
 
 ```
 umag-netdoc/
@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           544 pruebas (pytest)
+│   └── tests/           595 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -179,7 +179,7 @@ python3 -m venv .venv
 # Láminas: revisar/orientar, leer sus recintos (OCR) y cargar las que no
 # tienen plano vigente. Al cargarlas, cada elemento queda en su recinto
 .venv/bin/python -m app.scripts.preparar_laminas CADI [--aplicar]
-.venv/bin/python -m pip install -r requirements-ocr.txt      # una vez, solo para leer láminas
+.venv/bin/python -m pip install -r requirements-ocr.txt      # una vez, para leer láminas
 .venv/bin/python -m app.scripts.extraer_recintos CADI [cadi-p01-t2.svg]
 .venv/bin/python -m app.scripts.cargar_planos [CADI]
 
@@ -241,6 +241,10 @@ edificio.
   tamaño de un envío.
 - **Al confirmar**, se crean de una vez los pisos y tramos que nombran, y los planos
   quedan vigentes. Mientras se generan las teselas, el visor muestra la lámina original.
+- **Las salas de cada plano se leen solas** con OCR, con el código que trae el plano
+  (`1083` en el CADI, `09` o `25A` en la Biblioteca), en segundo plano: alrededor de un
+  minuto por plano. El visor lo avisa sobre el plano y, si falla, ofrece **Leer las
+  salas**. Después, el N° de recinto ubica cada elemento en su sala.
 
 Mientras el edificio no tenga elementos, el panel lateral ofrece **Agregar o quitar
 planos**:
@@ -253,8 +257,6 @@ planos**:
 
 Con el primer elemento, esto se cierra: los planos que falten o sus versiones nuevas se
 cargan desde la terminal, como se explica abajo, donde se ve qué pasa con lo ya ubicado.
-Los números de sala de las láminas (OCR) se leen aparte, con
-[`extraer_recintos`](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
 
 ### Con la API o desde la terminal
 
@@ -314,13 +316,18 @@ en el historial.
 
 ## Ubicación automática por recinto
 
-Casi nada hay que ubicarlo a mano. Cada sala de los planos lleva su número bajo
-el nombre, y el número dice el piso (`0017` en el subterráneo, `1083` en el
-primer piso, `2041` en el segundo…). Las planillas anotan ese mismo número en
-la ubicación de cada elemento, así que el sistema lo dibuja en su sala:
+Casi nada hay que ubicarlo a mano. Cada sala de los planos lleva un código en su
+rótulo, y cada edificio lo escribe a su manera: en el CADI, un número bajo el
+nombre que dice el piso (`0017` en el subterráneo, `1083` en el primero…); en la
+Biblioteca, la categoría, un número que empieza de nuevo en cada piso y el
+nombre debajo (`E.` / `09` / `Oficina administrativa`). El OCR reconoce en cada
+lámina cómo rotula sus salas y guarda cada código tal como lo escribe el plano.
+Las planillas o el visor anotan ese mismo código en cada elemento, así que el
+sistema lo dibuja en su sala:
 
-1. `extraer_recintos` lee con OCR los números de sala y los rótulos de racks
-   («RACK 08») de cada lámina y los deja en `data/<código>/<código>-recintos.csv`,
+1. Los planos cargados desde el visor se leen solos al confirmar la carga. Para
+   los de `data/`, `extraer_recintos` lee los códigos de sala y los rótulos de
+   racks («RACK 08») de cada lámina y los deja en `data/<código>/<código>-recintos.csv`,
    amarrados a la versión de la lámina que se leyó.
 2. Al importar y al cargar láminas (`./iniciar.sh` lo hace en cada arranque),
    cada elemento sin posición va a su recinto: los puntos de datos de una sala
@@ -334,7 +341,7 @@ la ubicación de cada elemento, así que el sistema lo dibuja en su sala:
 
 Lo que ya tiene posición nunca se mueve solo. Detalle en
 [docs/modelo-datos.md](docs/modelo-datos.md#ubicación-por-recinto) y paso a
-paso en la [guía, sección 4.1](docs/guia-nuevo-edificio.md#41-recintos-los-números-de-sala-de-cada-lámina).
+paso en la [guía, sección 4.1](docs/guia-nuevo-edificio.md#41-recintos-los-códigos-de-sala-de-cada-lámina).
 
 ## Agregar un elemento
 
@@ -486,7 +493,8 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `POST` | `/api/v1/catalogo/tipos` | Da de alta un tipo nuevo **sin migrar el esquema** |
 | `GET` | `/api/v1/edificios` | Catálogo de edificios (SOP §8.2) |
 | `POST` | `/api/v1/edificios/{cod}/pisos/{piso}/plano` | Carga el plano vigente del piso o, con `tramo`, de uno de sus tramos |
-| `GET` | `/api/v1/edificios/{cod}/pisos/{piso}/recintos` | Recintos de las láminas del piso (número, nombre y dónde se ubican sus elementos) |
+| `GET` | `/api/v1/edificios/{cod}/pisos/{piso}/recintos` | Recintos de las láminas del piso (código, nombre y dónde se ubican sus elementos) |
+| `POST` | `/api/v1/edificios/{codigo}/planos/{id}/leer-recintos` | Vuelve a leer con OCR las salas de un plano cargado desde el visor, en segundo plano |
 | `GET` | `/api/v1/edificios/{codigo}/carga-de-planos?archivo=` | Si el edificio está vacío y se le pueden cargar planos, cómo deben llamarse y los que esperan; con `archivo`, revisa esos nombres |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos` | Sube un plano a la espera, revisado (nombre, SVG, tamaño). `DELETE …/carga-de-planos/{archivo}` lo quita |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos/confirmar` | Crea los pisos y tramos que nombran los planos en espera y los deja vigentes |
@@ -555,7 +563,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 544 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 595 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

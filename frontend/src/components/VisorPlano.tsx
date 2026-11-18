@@ -29,6 +29,7 @@ import {
 } from 'react-leaflet'
 
 import { urlMedia } from '../api/cliente'
+import { AvisoSalas } from './AvisoSalas'
 import { colorDelGrupo } from '../arbol'
 import type { Nodo, NodoGrupo } from '../arbol'
 import type { ElementoMapa, Plano } from '../types'
@@ -177,6 +178,8 @@ interface Props {
   edificioVacio: boolean
   /** Abre la carga; sin ella (ya abierta), solo se muestra el aviso. */
   onCargarPlanos?: () => void
+  /** Vuelve a leer las salas del plano, cuando la lectura falló o faltaba el OCR. */
+  onLeerSalas?: () => Promise<void>
   edificio: string
 }
 
@@ -192,6 +195,7 @@ export function VisorPlano({
   onCancelarPosicion,
   edificioVacio,
   onCargarPlanos,
+  onLeerSalas,
   edificio,
 }: Props) {
   if (!plano && edificioVacio) {
@@ -277,6 +281,7 @@ export function VisorPlano({
           </button>
         </div>
       )}
+      <AvisoSalas plano={plano} onLeerSalas={onLeerSalas} />
       <MapContainer
         key={plano.id}
         crs={L.CRS.Simple}

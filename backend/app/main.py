@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -17,6 +19,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.v1.router import router_v1
 from app.core.config import configuracion
+from app.servicios.lectura_recintos import retomar_en_segundo_plano
 from app.servicios.metricas import medir_peticiones, respuesta_metricas
 from app.servicios.proteccion import proteger
 
@@ -38,6 +41,16 @@ if not registro.handlers:
     registro.addHandler(_salida)
     registro.setLevel(logging.INFO)
 
+
+
+@asynccontextmanager
+async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
+    # Las salas de los planos que quedaron sin leer (o a medias, si se
+    # reinició mientras se leían) se leen sin demorar el arranque.
+    retomar_en_segundo_plano()
+    yield
+
+
 # /docs es la página de Swagger UI que se compila con el visor: la de FastAPI
 # trae su JavaScript de un CDN, y correría con la sesión del administrador.
 app = FastAPI(
@@ -47,6 +60,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url="/openapi.json",
+    lifespan=ciclo_de_vida,
 )
 
 app.middleware("http")(proteger)

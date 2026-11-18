@@ -12,6 +12,7 @@ import type {
   HistorialEntrada,
   LaminaPendiente,
   Piso,
+  Plano,
   PlanosQuitados,
   PrevioTraslado,
   Recinto,
@@ -265,6 +266,10 @@ export const api = {
       `/edificios/${edificio}/planos?${new URLSearchParams({ confirmar })}`,
       { method: 'DELETE' },
     ),
+
+  /** Vuelve a leer con OCR las salas del plano, en segundo plano (cuando falló o faltaba el OCR). */
+  leerRecintos: (edificio: string, planoId: number) =>
+    pedir<Plano>(`/edificios/${edificio}/planos/${planoId}/leer-recintos`, { method: 'POST' }),
 
   /** Una marca que cambia cuando alguien cambia algo del edificio; llega también con el plano. */
   novedades: (edificio: string) => pedir<{ marca: string }>(`/edificios/${edificio}/novedades`),

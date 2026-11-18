@@ -42,8 +42,8 @@ flowchart LR
 |---|---|---|
 | Sistema | Ubuntu Server **24.04 o 26.04 LTS** | 22.04 no sirve: su Python es 3.10 y NetDoc requiere 3.11 o superior |
 | Permisos | Un usuario con `sudo` | NetDoc en sí corre con su propio usuario, sin privilegios |
-| Memoria | **4 GB** | En uso normal ocupa poco (la API, unos 100 MB), pero al dibujar cada lámina un proceso llega a 1 GB. Es lo que se probó; con menos, agregue memoria de intercambio |
-| Disco | **10 GB** libres | NetDoc y el CADI ocupan unos 500 MB, y cada respaldo, unos 200 MB (se guardan 14). Suma lo que traigan otros edificios |
+| Memoria | **4 GB** | En uso normal ocupa poco (la API, unos 100 MB), pero al dibujar cada lámina o leer sus salas, un proceso llega a 1 GB (de a uno). Es lo que se probó; con menos, agregue memoria de intercambio |
+| Disco | **10 GB** libres | NetDoc y el CADI ocupan unos 500 MB, el OCR que lee las salas de los planos otros 400 MB, y cada respaldo, unos 200 MB (se guardan 14). Suma lo que traigan otros edificios |
 | Internet | Durante la instalación y al actualizar | Para `apt`, PyPI y npm; en Ubuntu 24.04, también nodejs.org. Después no lo necesita |
 | Red | Puertos 80 y 443 hacia los usuarios | El 8000, solo si usa monitoreo (sección 11) |
 
@@ -97,8 +97,10 @@ Pregunta dos cosas, y lo demás lo hace solo:
    `/etc/netdoc/netdoc.env`.
 
 La primera vez dibuja las láminas, y eso es lo que más tarda: de 5 a 20 segundos por lámina
-en un equipo normal, de modo que en total cuente con unos 10 a 15 minutos. Al final comprueba
-que el servicio responda y exija sesión, y muestra la dirección.
+en un equipo normal, de modo que en total cuente con unos 10 a 15 minutos. También instala el
+OCR con que el sistema lee las salas de los planos que se cargan desde el visor (unos 400 MB,
+con versiones y sumas fijadas en `backend/requirements-ocr.lock`). Al final comprueba que el
+servicio responda y exija sesión, y muestra la dirección.
 
 ### 4.3 Opciones
 
@@ -110,6 +112,8 @@ que el servicio responda y exija sesión, y muestra la dirección.
 | `--dominio NOMBRE` | El nombre con que se accede, como `netdoc.umag.cl`. Se recuerda en las actualizaciones |
 | `--certificado ARCHIVO`, `--clave-certificado ARCHIVO` | Certificado propio en vez de uno autofirmado (sección 5) |
 | `--cambiar-base` | Pasa los datos a la base indicada (sección 10.2) |
+| `--actualizar` | Al actualizar, si hay una versión nueva en GitHub, la trae sin preguntar. Sirve sin terminal, por ejemplo desde una tarea programada |
+| `--sin-buscar-version` | Al actualizar, no revisa GitHub: instala lo que tiene la carpeta |
 
 Por ejemplo:
 
@@ -198,17 +202,38 @@ bloqueos, las sesiones y los tokens se explican en [seguridad.md](seguridad.md).
 
 ## 8. Actualizar
 
-En la carpeta del repositorio:
+En la carpeta del repositorio, el mismo comando de la instalación:
 
 ```bash
-git pull
+cd /umag-netdoc            # o donde haya clonado el repositorio
 sudo ./instalar-servidor.sh
 ```
 
-Es el mismo comando: como ya está instalado, no pregunta nada. **Primero respalda**, luego
-copia el código, instala lo que cambió, aplica las migraciones e importa lo nuevo de `data/`,
-y reinicia. Conserva la base, la contraseña y los certificados. NetDoc deja de responder solo
-durante las migraciones y el reinicio.
+Como ya está instalado, **primero revisa si hay una versión nueva en GitHub**. Si la hay,
+muestra qué cambió y pregunta si traerla:
+
+```text
+==> Revisando si hay una versión nueva en GitHub
+    Hay una versión nueva en origin/main: 2 cambio(s) que esta carpeta no tiene.
+      2026-11-18  Lectura de salas con la nomenclatura de cada plano
+      2026-11-17  Manejo de errores y borrado de planos
+    ¿Actualizar a la versión nueva antes de seguir? [S/n]:
+```
+
+Con **Enter** (o `s`) la trae, como un `git pull`, y sigue con la versión nueva del propio
+instalador. Con `n` instala lo que ya tiene la carpeta. Si ya está al día, o GitHub no
+responde, lo dice y sigue. No toca nada si la carpeta tiene cambios propios que chocan con la
+versión nueva: lo avisa y pregunta si seguir con lo que hay (revíselos con `git status`). Sin
+terminal no pregunta: sigue con lo que hay, salvo con `--actualizar` (sección 4.3). Si la
+carpeta se copió sin git, no revisa nada.
+
+git corre como el dueño de la carpeta, así que un repositorio privado le pide su usuario y su
+token de GitHub como lo haría `git pull`.
+
+Luego **respalda**, copia el código, instala lo que cambió, aplica las migraciones e importa lo
+nuevo de `data/`, y reinicia. No vuelve a preguntar la base ni la contraseña. Conserva la base,
+la contraseña y los certificados. NetDoc deja de responder solo durante las migraciones y el
+reinicio.
 
 Para incorporar un edificio nuevo, siga la [guía de edificios](guia-nuevo-edificio.md), súbalo
 al repositorio y actualice de esta misma forma. Importa solo lo que aún no tiene elementos:
@@ -318,6 +343,10 @@ Zabbix usa `https://<servidor>:8000/api/v1/integraciones/monitoreo/estado` como 
 | Olvidó la contraseña | | `sudo netdoc clave` |
 | El servicio no arranca tras cambiar la configuración | Valor inválido en `/etc/netdoc/netdoc.env` | `sudo netdoc registro`; corrija el valor |
 | `No se pudo cargar NetDoc`, *No hay conexión* en el visor | El servicio se detuvo | `sudo netdoc estado`; `sudo netdoc reiniciar` |
+| El visor dice que *el servidor no tiene instalado el OCR* | Se instaló antes de que el instalador lo incluyera | Actualice (sección 8): al reiniciar, lee solo las salas que esperaban |
+| `No se pudo consultar GitHub` al actualizar | Sin conexión, o git no puede escribir en la carpeta (por un `sudo git pull` anterior en una carpeta de otro usuario) | La línea siguiente dice lo que respondió git. Para lo segundo: `sudo chown -R <usuario>: /umag-netdoc` |
+| `actualización cancelada: no se cambió nada` | La carpeta tiene cambios propios que chocan con la versión nueva | `git status` y `git diff` muestran cuáles; descártelos con `git checkout -- <archivo>` o guárdelos con `git stash`, y vuelva a ejecutar |
+| Las salas de un plano no se leyeron (*No se pudieron leer las salas*) | El OCR falló con ese archivo | `sudo netdoc registro` muestra el motivo; el botón **Leer las salas**, sobre el plano, lo intenta de nuevo |
 
 ## 13. Desinstalar
 
@@ -356,7 +385,12 @@ pasaron contra PostgreSQL 16 en esas máquinas. Trasladar, eliminar y restaurar 
 después: todas las pruebas pasan contra PostgreSQL 18 y se recorrieron con un navegador sobre
 SQLite, pero no en estas máquinas virtuales. Lo mismo vale para `sudo netdoc usuario`: el
 programa que administra los usuarios tiene pruebas automáticas, pero el comando no se corrió
-en un servidor.
+en un servidor. Y para el OCR que lee las salas: sus versiones fijadas
+(`requirements-ocr.lock`) se instalaron con `--require-hashes` en Python 3.12 y 3.14 y leen
+igual los planos de la Biblioteca, sin necesitar libGL, pero el instalador que las instala no
+se corrió en estas máquinas virtuales. Revisar la versión nueva en GitHub al actualizar se
+probó con un repositorio de prueba (al día, sí, no, sin terminal, `--actualizar`, sin conexión,
+cambios propios que chocan, carpeta sin git), pero no en un servidor con `sudo`.
 
 **No se probó:** el perfil de monitoreo con contenedores reales (sección 11): se reprodujeron
 sus peticiones contra el puerto 8000, con su token y certificado, pero no con Docker,
