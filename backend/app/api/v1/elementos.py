@@ -87,14 +87,17 @@ from app.servicios.historial import registrar_alta, registrar_cambios
 from app.servicios.novedades import marca_del_edificio
 from app.servicios.recintos import (
     RE_CODIGO_EN_TEXTO,
-    buscar_codigo,
     buscar_recinto,
+    buscar_sala,
+    codigo_de_la_ubicacion,
     codigos_del_piso,
     corresponde_al_piso,
+    describir_varias,
     normalizar_codigo,
     normalizar_numero,
     numero_de_recinto,
     prefijo_de_piso,
+    recintos_del_piso,
     sigue_numeracion_por_piso,
     ubicar_en_recinto,
     ubicar_pendientes,
@@ -212,20 +215,35 @@ def _error_de_campo(campo: str, mensaje: str) -> HTTPException:
 def _validar_numero_recinto(valor: str | None, piso: Piso) -> str | None:
     """El número de recinto como se guarda, o None si se dejó vacío.
 
-    Es el código de la sala tal como lo escribe la lámina: «1083» en el CADI,
-    «09» o «25A» en la Biblioteca. Si es una de las salas leídas de las
-    láminas del piso, se guarda como lo escribe la lámina («9» → «09»,
-    «BC-01-09-E» → «09»). Si el piso sigue la numeración por piso del CADI,
-    además debe ser de ese piso: los recintos del subterráneo empiezan con 00,
-    los del primer piso con 1, los del segundo con 2…
+    Se busca entre las salas leídas de las láminas del piso por su código o por
+    su nombre, porque cada edificio las rotula a su manera: «1083» o
+    «SECRETARÍA RECEPCIÓN» en el CADI, «09», «Idiomas» o «BC-01-09-E» en la
+    Biblioteca. Se guarda el código como lo escribe la lámina. Si el nombre es
+    de varias salas, hay que elegir una por su código.
+
+    Un código que no está entre las salas leídas (un rótulo que el OCR no
+    alcanzó a leer) se acepta solo; si el piso sigue la numeración del CADI,
+    debe ser de ese piso: los recintos del subterráneo empiezan con 00, los del
+    primer piso con 1, los del segundo con 2…
     """
     if valor is None or not valor.strip():
         return None
+    texto = valor.strip()
+    recintos = recintos_del_piso(piso)
+    busqueda = buscar_sala(texto, piso.codigo, recintos)
+    if busqueda.sala is not None:
+        return busqueda.sala.numero
+    if busqueda.varias:
+        raise _error_de_campo(
+            "numero_recinto",
+            f"«{texto}» es el nombre de {len(busqueda.varias)} salas del piso {piso.codigo}: "
+            f"{describir_varias(busqueda.varias)}. Elija una de la lista o escriba su número",
+        )
     conocidos = codigos_del_piso(piso)
-    if conocido := buscar_codigo(valor.strip(), conocidos):
-        return conocido
     if sigue_numeracion_por_piso(piso):
-        numero = normalizar_numero(valor)
+        numero = normalizar_numero(texto) or numero_de_recinto(texto, piso.codigo)
+        if numero is None and any(c.isalpha() for c in texto):
+            raise _error_de_campo("numero_recinto", _sin_sala(texto, piso, conocidos))
         if numero is None:
             raise _error_de_campo(
                 "numero_recinto", "debe ser el número de la sala en el plano, como 1083 o 1083.2"
@@ -238,22 +256,31 @@ def _validar_numero_recinto(valor: str | None, piso: Piso) -> str | None:
                 + (f": sus números empiezan con {prefijo}" if prefijo else ""),
             )
         return numero
-    if conocidos and (en_el_texto := numero_de_recinto(valor, piso.codigo, conocidos)):
-        return en_el_texto
-    # «Sala 9» → 09 si la lámina la tiene; si no, «Sala 77» → 77. «BC-01-09-E»
-    # se guarda entero y, cuando se lean las salas del piso, el elemento queda
-    # en la 09.
-    partes = RE_CODIGO_EN_TEXTO.findall(valor)
-    if partes and (conocido := buscar_codigo(partes[-1], conocidos)):
-        return conocido
-    codigo = normalizar_codigo(partes[-1] if partes and " " in valor.strip() else valor)
+    # Con las salas del piso ya leídas, un texto con palabras debe nombrar a
+    # una; un código solo («32») se acepta aunque el OCR no lo haya leído, y
+    # el elemento se ubica con un clic. Si aún no se leen, «Sala 77» → 77 y
+    # «BC-01-09-E» se guarda entero: al leerlas, el elemento queda en la 09.
+    if conocidos and " " in texto and any(c.isalpha() for c in texto):
+        raise _error_de_campo("numero_recinto", _sin_sala(texto, piso, conocidos))
+    partes = RE_CODIGO_EN_TEXTO.findall(texto)
+    codigo = normalizar_codigo(partes[-1] if partes and " " in texto else texto)
     if codigo is None:
-        ejemplos = " o ".join(conocidos[:2]) if conocidos else "09 o 25A"
-        raise _error_de_campo(
-            "numero_recinto",
-            f"debe ser el código de la sala tal como aparece en el plano, como {ejemplos}",
-        )
+        raise _error_de_campo("numero_recinto", _sin_sala(texto, piso, conocidos))
     return codigo
+
+
+def _sin_sala(texto: str, piso: Piso, conocidos: list[str]) -> str:
+    if not conocidos:
+        return (
+            f"las salas del piso {piso.codigo} aún no se leen de su plano: escriba el código "
+            "de la sala como aparece en el plano, como 09 o 25A, o déjelo vacío y ubíquelo "
+            "con un clic"
+        )
+    return (
+        f"no hay una sala «{texto}» entre las leídas del plano del piso {piso.codigo}: "
+        "búsquela por su nombre o su número y elíjala de la lista, o déjelo vacío y "
+        "ubíquelo con un clic"
+    )
 
 
 def _cambios_de_lamina(sesion, elemento: Elemento, codigo_tramo: str | None) -> dict:
@@ -690,7 +717,7 @@ def crear_elemento(datos: ElementoCrear, sesion: SesionBD, usuario: str | None =
 
     # Sin número explícito, el que trae la ubicación («Oficina 1083»).
     numero_recinto = _validar_numero_recinto(datos.numero_recinto, piso) or (
-        numero_de_recinto(datos.ubicacion_descriptiva, piso.codigo, codigos_del_piso(piso))
+        codigo_de_la_ubicacion(datos.ubicacion_descriptiva, piso)
     )
 
     elemento = Elemento(
@@ -839,9 +866,8 @@ def actualizar_elemento(id_o_codigo: str, datos: ElementoActualizar, sesion: Ses
     elif entrada.get("ubicacion_descriptiva"):
         # Una ubicación que trae su número también sirve («Sala Eléctrica
         # 2045»), salvo que el número se haya escrito aparte: ese manda.
-        codigo_piso, conocidos = elemento.piso.codigo, codigos_del_piso(elemento.piso)
-        anterior = numero_de_recinto(elemento.ubicacion_descriptiva, codigo_piso, conocidos)
-        numero = numero_de_recinto(entrada["ubicacion_descriptiva"], codigo_piso, conocidos)
+        anterior = codigo_de_la_ubicacion(elemento.ubicacion_descriptiva, elemento.piso)
+        numero = codigo_de_la_ubicacion(entrada["ubicacion_descriptiva"], elemento.piso)
         sigue_al_texto = elemento.numero_recinto in (None, anterior)
         if numero and numero != elemento.numero_recinto and sigue_al_texto:
             cambios["numero_recinto"] = numero
@@ -1074,7 +1100,7 @@ def _aplicar_traslado(
         ubicacion = (indicados["ubicacion_descriptiva"] or "").strip() or None
         # Una ubicación que trae su número también sirve («Oficina 2045»).
         if "numero_recinto" not in indicados or numero is None:
-            numero = numero_de_recinto(ubicacion, piso.codigo, codigos_del_piso(piso)) or numero
+            numero = codigo_de_la_ubicacion(ubicacion, piso) or numero
     else:
         ubicacion = None if cambia_de_piso else elemento.ubicacion_descriptiva
 

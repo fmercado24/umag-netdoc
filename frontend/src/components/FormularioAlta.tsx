@@ -16,12 +16,15 @@ import {
   Campo,
   ControlAtributo,
   convertirAtributo,
-  ejemplosDeRecinto,
+  ayudaSala,
+  ejemploDeUbicacion,
   erroresDelServidor,
   leerUsuario,
   recordarUsuario,
   SOLO_CONECTADOS,
+  ubicacionDeSala,
 } from './camposFormulario'
+import { BuscadorSala } from './BuscadorSala'
 import type {
   CodigoPropuesto,
   DefinicionAtributo,
@@ -121,6 +124,16 @@ export function FormularioAlta({
   const fichaVisible = ficha.filter((d) => !ATRIBUTOS_AUTOMATICOS.has(d.clave))
 
   const cambiar = (campo: CampoBase, valor: string) => setBase((b) => ({ ...b, [campo]: valor }))
+
+  // Al elegir la sala, la ubicación toma su nombre, salvo que se haya escrito otra.
+  const [ubicacionPuesta, setUbicacionPuesta] = useState('')
+  const completarUbicacion = (sala: Recinto) => {
+    const actual = base.ubicacion_descriptiva.trim()
+    if (actual !== '' && actual !== ubicacionPuesta) return
+    const nueva = ubicacionDeSala(sala)
+    cambiar('ubicacion_descriptiva', nueva)
+    setUbicacionPuesta(nueva)
+  }
 
   const cambiarPiso = (codigo: string) => {
     setCodigoPiso(codigo)
@@ -470,30 +483,21 @@ export function FormularioAlta({
             )}
 
             <h3 className="subtitulo">Ubicación</h3>
-            {texto('ubicacion_descriptiva', 'Ubicación (recinto)', {
-              placeholder: ejemplosDeRecinto(recintos).ubicacion,
-            })}
             {campo(
               'numero_recinto',
-              'N° de recinto',
-              <>
-                <input
-                  type="text"
-                  list="recintos-alta"
-                  value={base.numero_recinto}
-                  placeholder={ejemplosDeRecinto(recintos).numero}
-                  onChange={(e) => cambiar('numero_recinto', e.target.value)}
-                />
-                <datalist id="recintos-alta">
-                  {recintos.map((r) => (
-                    <option key={`${r.plano_id}-${r.numero}`} value={r.numero}>
-                      {r.nombre ?? ''}
-                    </option>
-                  ))}
-                </datalist>
-              </>,
-              'El código de la sala tal como aparece en el plano: con él queda ubicado ahí. Sin él, podrás marcarlo con un clic.',
+              'Sala del plano',
+              <BuscadorSala
+                recintos={recintos}
+                valor={base.numero_recinto}
+                onCambiar={(valor) => cambiar('numero_recinto', valor)}
+                onElegir={completarUbicacion}
+                conError={Boolean(errores.numero_recinto)}
+              />,
+              ayudaSala(recintos),
             )}
+            {texto('ubicacion_descriptiva', 'Ubicación (detalle)', {
+              placeholder: ejemploDeUbicacion(recintos),
+            })}
             {admiteRack &&
               campo(
                 'padre_codigo',

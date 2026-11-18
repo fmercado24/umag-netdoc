@@ -73,6 +73,11 @@ git clone https://github.com/fmercado24/umag-netdoc.git
 cd umag-netdoc
 ```
 
+Si lo clona con `sudo`, por ejemplo en `/umag-netdoc`, la carpeta queda de root y git no deja
+usarla sin `sudo`. El instalador la deja a nombre de quien lo ejecuta con `sudo`: desde
+entonces, `git pull` y `git status` van sin `sudo`. Lo que se instala en `/opt/netdoc` sigue
+siendo de root.
+
 Sin acceso desde el servidor, cópielo desde otro equipo. No copie `.env`: tiene el hash de
 la contraseña de ese equipo.
 
@@ -227,8 +232,8 @@ versión nueva: lo avisa y pregunta si seguir con lo que hay (revíselos con `gi
 terminal no pregunta: sigue con lo que hay, salvo con `--actualizar` (sección 4.3). Si la
 carpeta se copió sin git, no revisa nada.
 
-git corre como el dueño de la carpeta, así que un repositorio privado le pide su usuario y su
-token de GitHub como lo haría `git pull`.
+git corre como el dueño de la carpeta (usted, si la carpeta era de root: sección 4.1), así que
+un repositorio privado le pide su usuario y su token de GitHub como lo haría `git pull`.
 
 Luego **respalda**, copia el código, instala lo que cambió, aplica las migraciones e importa lo
 nuevo de `data/`, y reinicia. No vuelve a preguntar la base ni la contraseña. Conserva la base,
@@ -344,7 +349,8 @@ Zabbix usa `https://<servidor>:8000/api/v1/integraciones/monitoreo/estado` como 
 | El servicio no arranca tras cambiar la configuración | Valor inválido en `/etc/netdoc/netdoc.env` | `sudo netdoc registro`; corrija el valor |
 | `No se pudo cargar NetDoc`, *No hay conexión* en el visor | El servicio se detuvo | `sudo netdoc estado`; `sudo netdoc reiniciar` |
 | El visor dice que *el servidor no tiene instalado el OCR* | Se instaló antes de que el instalador lo incluyera | Actualice (sección 8): al reiniciar, lee solo las salas que esperaban |
-| `No se pudo consultar GitHub` al actualizar | Sin conexión, o git no puede escribir en la carpeta (por un `sudo git pull` anterior en una carpeta de otro usuario) | La línea siguiente dice lo que respondió git. Para lo segundo: `sudo chown -R <usuario>: /umag-netdoc` |
+| git pide `sudo` en la carpeta del repositorio (`detected dubious ownership`, `Permission denied`) | La carpeta se clonó con `sudo` o se usó `sudo git pull`, y quedó de root | `sudo ./instalar-servidor.sh` la deja a su nombre (sección 4.1); después, git sin `sudo` |
+| `No se pudo consultar GitHub` al actualizar | Sin conexión, o GitHub pide credenciales que no se dieron | La línea siguiente dice lo que respondió git. Con un repositorio privado, ejecútelo desde una terminal para que pida su usuario y token |
 | `actualización cancelada: no se cambió nada` | La carpeta tiene cambios propios que chocan con la versión nueva | `git status` y `git diff` muestran cuáles; descártelos con `git checkout -- <archivo>` o guárdelos con `git stash`, y vuelva a ejecutar |
 | Las salas de un plano no se leyeron (*No se pudieron leer las salas*) | El OCR falló con ese archivo | `sudo netdoc registro` muestra el motivo; el botón **Leer las salas**, sobre el plano, lo intenta de nuevo |
 

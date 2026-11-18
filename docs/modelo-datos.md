@@ -273,8 +273,9 @@ texto de la ubicación y tal como lo escribe la lámina: `1083` en el CADI, `09`
 la numeración del CADI solo si es del piso del elemento: en «Oficina 1039/2018»
 del primer piso es 1039, y «Box Fisiopatología 2022» en el tercer piso no tiene
 número (2022 es del segundo: el importador lo informa como error de
-transcripción). En el visor se completa o corrige en la ficha (*Editar → N° de
-recinto*); al guardarlo, el elemento pasa a ese recinto. Lo escrito de otra
+transcripción). En el visor se completa o corrige en la ficha (*Editar → Sala del
+plano*), que busca la sala por su nombre o su número entre las leídas del piso; al
+guardarla, el elemento pasa a ese recinto. Lo escrito de otra
 manera se guarda como lo escribe la lámina (`9` → `09`, `BC-01-09-E` → `09`), y
 un código que la lámina no tiene se acepta igual: el elemento se ubica con un
 clic. Si se escribió antes de que se leyeran las salas del plano, al leerlas el

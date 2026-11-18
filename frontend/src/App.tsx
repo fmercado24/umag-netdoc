@@ -302,8 +302,8 @@ export default function App({ usuario, onSalir }: Props) {
     setAviso(
       `Cargados en ${edificioSel}: ${partes.join(', ')}. Mientras se preparan para moverse con ` +
         'fluidez, el visor muestra las láminas originales. Las salas de cada plano se leen ' +
-        'solas en unos minutos, con el código que trae el plano: después, el N° de recinto ' +
-        'ubica cada elemento en su sala.',
+        'solas en unos minutos, con el nombre y el código que trae el plano: después, cada ' +
+        'elemento se ubica en su sala buscándola por su nombre o su número.',
     )
     setVersionPisos((v) => v + 1)
   }

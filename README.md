@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           595 pruebas (pytest)
+│   └── tests/           617 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -244,7 +244,7 @@ edificio.
 - **Las salas de cada plano se leen solas** con OCR, con el código que trae el plano
   (`1083` en el CADI, `09` o `25A` en la Biblioteca), en segundo plano: alrededor de un
   minuto por plano. El visor lo avisa sobre el plano y, si falla, ofrece **Leer las
-  salas**. Después, el N° de recinto ubica cada elemento en su sala.
+  salas**. Después, cada elemento se ubica en su sala buscándola por su nombre o su número.
 
 Mientras el edificio no tenga elementos, el panel lateral ofrece **Agregar o quitar
 planos**:
@@ -335,7 +335,7 @@ sistema lo dibuja en su sala:
    equipos uno junto al otro. Un AP o una UPS en una sala sin número en la
    lámina (las salas eléctricas del CADI) queda junto al rack de su sala.
 3. Lo que no se pudo ubicar se lista, con una sugerencia cuando el nombre se
-   parece a otro recinto de la lámina. En el visor, *Editar → N° de recinto*
+   parece a otro recinto de la lámina. En el visor, *Editar → Sala del plano*
    lo ubica al guardar, y *Ubicar en su recinto* devuelve a su sala lo que se
    movió a mano.
 
@@ -563,7 +563,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 595 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 617 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

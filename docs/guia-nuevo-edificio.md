@@ -23,7 +23,7 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 | 5 | Ensayar la importación | `importar_edificio ING --solo-advertencias` | Informe sin discrepancias graves |
 | 6 | Importar | `importar_edificio ING` (o `./iniciar.sh`) | "Importación completada" |
 | 7 | Cargar planos y fotos | `cargar_planos ING`, `cargar_fotografias ING` (o `./iniciar.sh`) | Planos vigentes por piso o tramo, y cada elemento en su recinto |
-| 8 | Ubicar lo pendiente | Visor → *Editar → N° de recinto*, o *Ubicar en el plano* | Todo con su marcador |
+| 8 | Ubicar lo pendiente | Visor → *Editar → Sala del plano*, o *Ubicar en el plano* | Todo con su marcador |
 | 9 | Completar las fichas | Visor → *Editar* | Completitud cercana al 100 % |
 | 10 | Monitoreo (opcional) | [manual-monitoreo.md](manual-monitoreo.md) | El edificio aparece en Grafana / Zabbix |
 
@@ -37,7 +37,7 @@ tenga elementos, **Agregar o quitar planos**, en el panel lateral, permite subir
 falten o quitarlos todos para empezar de nuevo. Al confirmar la carga, el sistema **lee
 solo las salas de cada plano** con OCR, con el código que trae el plano (sección 4.1):
 toma alrededor de un minuto por plano y, mientras tanto, el visor lo avisa sobre el
-plano. Después, el N° de recinto de cada elemento lo ubica en su sala.
+plano. Después, la sala de cada elemento, buscada por su nombre o su número, lo ubica en ella.
 
 ---
 
@@ -331,7 +331,7 @@ Las dimensiones de la lámina fijan el sistema de coordenadas de las posiciones:
 Cada sala de los planos lleva un código en su rótulo, y **cada edificio lo escribe a su
 manera**: la universidad no tiene un estándar único. El sistema guarda cada código tal
 como lo escribe el plano, y con él, el que las planillas anotan en la ubicación o el que
-se escribe en *N° de recinto*, **cada elemento queda solo en su sala**: los puntos de
+se elige en *Sala del plano*, **cada elemento queda solo en su sala**: los puntos de
 datos de una sala en un solo marcador que se despliega, los equipos uno junto al otro y
 cada rack sobre su rótulo de la lámina («RACK 08»).
 
@@ -345,11 +345,27 @@ El OCR reconoce en cada lámina cómo rotula sus salas: un rótulo es un código
 y la forma que más se repite dice cuál es la del edificio. Lo que no tiene esa forma
 (cotas, la viñeta, la simbología) no se toma como sala.
 
-Al escribir el N° de recinto en el visor vale el código de la lámina, y el campo sugiere
-los del piso. Se acepta también escrito de otra manera y se guarda como lo escribe la
-lámina: `9` → `09`, `25a` → `25A`, y la nomenclatura completa que trae la nota de las
-láminas de la Biblioteca, `BC-01-09-E` → `09`. Un código que no está en la lámina (un
-rótulo que el OCR no leyó) se acepta igual: el elemento se ubica con un clic.
+En el visor, al agregar, editar o trasladar un elemento, **Sala del plano** busca entre
+las salas leídas del piso **por su nombre o por su número**, porque no todos los
+edificios las numeran ni las nombran igual. Mientras se escribe, muestra las que calzan
+(«of adm» encuentra las *Oficina administrativa*, «9» la `09`) y se elige una de la
+lista; la ubicación toma su nombre, si no se había escrito otra. Se guarda el código de
+la sala, como lo escribe la lámina.
+
+Lo que se escribe sin elegir de la lista se busca igual al guardar:
+
+| Se escribe | Queda |
+|---|---|
+| `9`, `25a`, `1083` | La sala `09`, `25A`, `1083` |
+| `Kitchenette 27`, `Oficina 1083`, `BC-01-09-E` (la nomenclatura de la nota de las láminas de la Biblioteca) | La sala del código que trae: `27`, `1083`, `09` |
+| `Idiomas`, `Sala de conferencia`, `conferencia`, `SECRETARÍA RECEPCIÓN` | La única sala con ese nombre (sin importar tildes, mayúsculas ni palabras como «de») |
+| `Oficina administrativa`, `Kitchenette` | Nada: varias salas se llaman así, y el campo pide elegir una por su número |
+| `32` (un código que el OCR no leyó) | Se acepta; el elemento se ubica con un clic |
+| `Sala eléctrica` (un nombre que no está entre las salas leídas) | Nada: el campo lo dice, y el elemento se ubica con un clic |
+
+La **Ubicación (detalle)** sigue siendo texto libre. Si no se eligió sala, también ubica:
+con un código («Oficina administrativa 09») o con el nombre de una sola sala del piso
+(«Idiomas»).
 
 **Los planos cargados desde el visor se leen solos** al confirmar la carga, en segundo
 plano. Si la lectura falla, o el servidor no tenía el OCR, el visor lo avisa sobre el
@@ -463,9 +479,9 @@ su recinto, y lo que no se pudo ubicar se listó en la terminal:
 Ubicación en los planos
   Ubicados en su recinto: 210
   Ubicados junto a otro elemento de su sala, que no tiene número en la lámina: 4
-  Con un recinto que no aparece en las láminas de su piso (3): corrija el N° de recinto …
+  Con un recinto que no aparece en las láminas de su piso (3): corrija su sala en el visor …
     - P01 «Recepción 1063»: ING-PD-P01-T2-R04-D16 … → en la lámina: 1082 (SECRETARÍA RECEPCIÓN)
-  Sin número de recinto (2): complételo en el visor (Editar → N° de recinto) …
+  Sin número de recinto (2): complételo en el visor (Editar → Sala del plano) …
     - P02 «Sala Eléctrica»: ING-R05-P02-T1
 ```
 
@@ -473,8 +489,8 @@ En el visor (`http://localhost:8000`, o la dirección del servidor), elija
 **Edificio**, **Piso** y **Tramo** en la barra superior. Lo pendiente lleva la
 marca *sin ubicar* en el listado y un aviso en su ficha.
 
-- **Falta el número, o está mal:** ficha → **Editar** → **N° de recinto**. El
-  campo sugiere los recintos del piso. Al guardar, el elemento se ubica solo.
+- **Falta la sala, o está mal:** ficha → **Editar** → **Sala del plano**. Se busca
+  por su nombre o su número entre las del piso. Al guardar, el elemento se ubica solo.
 - **Su sala no tiene número en la lámina**, o el elemento no está donde dice su
   recinto: ubíquelo a mano, como se explica abajo.
 - **Ubicar en su recinto**, en la ficha, devuelve a su sala un elemento que se
@@ -566,10 +582,10 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 | Un punto de datos no aparece al elegir su tramo | Está dibujado en la lámina de otro tramo | Fila *Lámina* de su ficha, o `ing-laminas.csv` |
 | No se puede ubicar un switch | Está montado en un rack | Ubique el rack; el switch se ve dentro |
 | `… se leyó de otra versión de «…»` al arrancar | La lámina cambió después de leer sus recintos | `extraer_recintos ING <lámina>` |
-| Un elemento con número de recinto queda *sin ubicar* | El número no está en las láminas de su piso (o el OCR no lo leyó) | Revise el informe de `extraer_recintos`: corrija el N° de recinto en el visor o agregue la fila a `ing-recintos.csv` |
+| Un elemento con número de recinto queda *sin ubicar* | El número no está en las láminas de su piso (o el OCR no lo leyó) | Revise el informe de `extraer_recintos`: corrija la sala en el visor (*Sala del plano*) o agregue la fila a `ing-recintos.csv` |
 | `Falta el OCR para leer las láminas` | No se instaló la dependencia opcional | `cd backend && .venv/bin/python -m pip install -r requirements-ocr.txt` |
 | El visor dice que el servidor no tiene el OCR | Se instaló con una versión anterior de `instalar-servidor.sh` | Actualice con `sudo ./instalar-servidor.sh`, que trae la versión nueva de GitHub: al arrancar, lee las salas que esperaban |
-| Una sala no quedó entre los recintos del plano | El OCR no alcanzó a leer su código (rótulos superpuestos o tapados) | Escriba igual su N° de recinto y ubique el elemento con un clic |
+| Una sala no quedó entre los recintos del plano | El OCR no alcanzó a leer su código (rótulos superpuestos o tapados) | Escriba igual su código en *Sala del plano* y ubique el elemento con un clic |
 
 ## Glosario
 

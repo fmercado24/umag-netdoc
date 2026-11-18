@@ -1,7 +1,7 @@
 /**
  * En qué va la lectura de las salas del plano con OCR (ver
- * backend/app/servicios/lectura_recintos.py). Con ellas, el N° de recinto de cada
- * elemento lo ubica en su sala, con la nomenclatura que trae el plano.
+ * backend/app/servicios/lectura_recintos.py). Con ellas, cada elemento se ubica en
+ * su sala buscándola por su nombre o su número, como los trae el plano.
  */
 
 import { useState } from 'react'
@@ -32,8 +32,8 @@ export function AvisoSalas({ plano, onLeerSalas }: Props) {
       <div className="aviso-salas" role="status">
         <span className="aviso-salas__giro" aria-hidden="true" />
         <span>
-          <strong>Leyendo las salas del plano…</strong> Toma alrededor de un minuto. Después, el N°
-          de recinto de cada elemento lo ubica en su sala.
+          <strong>Leyendo las salas del plano…</strong> Toma alrededor de un minuto. Después, cada
+          equipo se ubica en su sala buscándola por su nombre o su número.
         </span>
       </div>
     )

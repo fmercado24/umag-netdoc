@@ -31,6 +31,7 @@ from app.servicios.recintos import (
     clave_de_codigo,
     normalizar_codigo,
     numero_de_recinto,
+    salas_con_nombre,
 )
 
 API = "/api/v1"
@@ -250,7 +251,7 @@ def test_leer_varios_devuelve_cada_lectura_a_su_trozo():
 
 
 # --------------------------------------------------------------------------
-# N° de recinto de los elementos
+# La sala de los elementos: por su código o su nombre
 # --------------------------------------------------------------------------
 _contador = iter(range(1, 1000))
 
@@ -285,11 +286,52 @@ def _lamina(sesion, edificio, piso="P01", salas=(), **campos):
     return plano.id
 
 
-SALAS_BIBLIOTECA = [("01", "Mampara"), ("09", "Oficina administrativa"), ("25A", "Sala reunion")]
+SALAS_BIBLIOTECA = [
+    ("01", "Mampara"),
+    ("02", "Idiomas"),
+    ("09", "Oficina administrativa"),
+    ("13", "Oficina administrativa"),
+    ("15", "Kitchenette"),
+    ("23", "Sala conferencia"),
+    ("25A", "Sala reunion"),
+    ("27", "Kitchenette"),
+]
 
 
 def _alta(cliente, edificio, **datos):
     return cliente.post(f"{API}/elementos", json={"tipo": "AP", "edificio": edificio, "piso": "P01", **datos})
+
+
+def _salas(*pares):
+    return [Recinto(numero=numero, nombre=nombre, pos_x=0, pos_y=0) for numero, nombre in pares]
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperadas"),
+    [
+        ("Idiomas", ["02"]),
+        ("IDIOMAS", ["02"]),
+        # Tildes y palabras que no distinguen no cuentan.
+        ("Sala de reunión", ["25A"]),
+        # Con el nombre exacto de una, esa; si no, las que contienen lo escrito.
+        ("conferencia", ["23"]),
+        ("of adm", ["09", "13"]),
+        ("Oficina administrativa", ["09", "13"]),
+        ("Kitchenette", ["15", "27"]),
+        ("Bodega", []),
+        ("", []),
+    ],
+)
+def test_salas_con_nombre(texto, esperadas):
+    assert [r.numero for r in salas_con_nombre(texto, _salas(*SALAS_BIBLIOTECA))] == esperadas
+
+
+def test_salas_con_nombre_respeta_las_cifras_del_nombre():
+    salas = _salas(("1045", "BOX DE ATENCION 2"), ("1046", "BOX DE ATENCION 3"), ("1047", "SALA 1"))
+    assert [r.numero for r in salas_con_nombre("box 3", salas)] == ["1046"]
+    assert [r.numero for r in salas_con_nombre("Box de atención", salas)] == ["1045", "1046"]
+    assert [r.numero for r in salas_con_nombre("Sala 1", salas, exacto=True)] == ["1047"]
+    assert salas_con_nombre("Sala 2", salas) == []
 
 
 @pytest.mark.parametrize(
@@ -298,16 +340,18 @@ def _alta(cliente, edificio, **datos):
         ("9", "09", True),
         ("25a", "25A", True),
         ("BC-01-09-E", "09", True),
-        # En el campo sí se escribe un código a propósito.
-        ("Sala 9", "09", True),
-        # No está en la lámina (el OCR no lo leyó): se acepta y se ubica con un clic.
+        ("Kitchenette 27", "27", True),
+        # Por el nombre de la sala, como sale en el plano o casi.
+        ("Idiomas", "02", True),
+        ("Sala de conferencia", "23", True),
+        ("conferencia", "23", True),
+        ("sala de reunión", "25A", True),
+        # Un código que no está en la lámina (el OCR no lo leyó): se acepta y
+        # se ubica con un clic.
         ("77", "77", False),
-        ("Sala 77", "77", False),
     ],
 )
-def test_el_numero_de_recinto_se_guarda_como_lo_escribe_el_plano(
-    cliente, sesion, edificio, escrito, guardado, ubicado
-):
+def test_la_sala_se_busca_por_su_codigo_o_su_nombre(cliente, sesion, edificio, escrito, guardado, ubicado):
     plano_id = _lamina(sesion, edificio, salas=SALAS_BIBLIOTECA)
     respuesta = _alta(cliente, edificio, numero_recinto=escrito)
     assert respuesta.status_code == 201, respuesta.text
@@ -316,23 +360,64 @@ def test_el_numero_de_recinto_se_guarda_como_lo_escribe_el_plano(
     assert (creado["plano_id"] == plano_id) is ubicado
 
 
-def test_un_codigo_imposible_se_rechaza_con_ejemplos_del_plano(cliente, sesion, edificio):
+@pytest.mark.parametrize(
+    ("escrito", "mensaje"),
+    [
+        # Varias salas con ese nombre: no se elige ninguna.
+        (
+            "Oficina administrativa",
+            "es el nombre de 2 salas del piso P01: 09, 13. Elija una de la lista o escriba su número",
+        ),
+        ("Kitchenette", "es el nombre de 2 salas del piso P01: 15, 27"),
+        # Con nombres distintos, van con su nombre.
+        ("sala", "es el nombre de 2 salas del piso P01: 23 (Sala conferencia), 25A (Sala reunion)"),
+        ("Sala 77", "no hay una sala «Sala 77» entre las leídas del plano del piso P01"),
+        ("Sala eléctrica", "no hay una sala «Sala eléctrica»"),
+        ("#$%", "no hay una sala «#$%»"),
+    ],
+)
+def test_lo_que_no_nombra_una_sola_sala_se_explica(cliente, sesion, edificio, escrito, mensaje):
     _lamina(sesion, edificio, salas=SALAS_BIBLIOTECA)
-    respuesta = _alta(cliente, edificio, numero_recinto="#$%")
+    respuesta = _alta(cliente, edificio, numero_recinto=escrito)
     assert respuesta.status_code == 422
-    assert "como aparece en el plano, como 01 o 09" in respuesta.json()["detail"][0]["msg"]
+    assert mensaje in respuesta.json()["detail"][0]["msg"]
 
 
 def test_sin_salas_leidas_se_acepta_el_codigo_del_plano(cliente, edificio):
     respuesta = _alta(cliente, edificio, numero_recinto="09")
     assert respuesta.status_code == 201, respuesta.text
     assert respuesta.json()["numero_recinto"] == "09"
+    # Un nombre todavía no se puede buscar.
+    respuesta = _alta(cliente, edificio, numero_recinto="Idiomas")
+    assert respuesta.status_code == 422
+    assert "aún no se leen de su plano" in respuesta.json()["detail"][0]["msg"]
 
 
-def test_la_ubicacion_trae_el_codigo_de_la_sala(cliente, sesion, edificio):
+@pytest.mark.parametrize(
+    ("ubicacion", "numero", "ubicado"),
+    [
+        ("Oficina administrativa 09", "09", True),
+        # El nombre de una sola sala ubica; el de varias, no.
+        ("Idiomas", "02", True),
+        ("Kitchenette", None, False),
+        ("Piso 1, oficina", None, False),
+    ],
+)
+def test_la_ubicacion_trae_la_sala(cliente, sesion, edificio, ubicacion, numero, ubicado):
     plano_id = _lamina(sesion, edificio, salas=SALAS_BIBLIOTECA)
-    creado = _alta(cliente, edificio, ubicacion_descriptiva="Oficina administrativa 09").json()
-    assert (creado["numero_recinto"], creado["plano_id"]) == ("09", plano_id)
+    creado = _alta(cliente, edificio, ubicacion_descriptiva=ubicacion).json()
+    assert creado["numero_recinto"] == numero
+    assert (creado["plano_id"] == plano_id) is ubicado
+
+
+def test_en_el_cadi_tambien_se_busca_por_el_nombre(cliente, sesion, edificio):
+    _lamina(sesion, edificio, salas=[("1082", "SECRETARÍA RECEPCIÓN"), ("1083", "OFICINA")])
+    assert _alta(cliente, edificio, numero_recinto="Secretaría recepción").json()["numero_recinto"] == "1082"
+    # Un número del piso que no está en la lámina, solo o con su nombre, vale como antes.
+    assert _alta(cliente, edificio, numero_recinto="Oficina 1099").json()["numero_recinto"] == "1099"
+    malo = _alta(cliente, edificio, numero_recinto="Sala eléctrica")
+    assert malo.status_code == 422
+    assert "no hay una sala «Sala eléctrica»" in malo.json()["detail"][0]["msg"]
 
 
 def test_en_un_piso_nuevo_del_cadi_rige_su_numeracion(cliente, sesion, edificio):
@@ -432,7 +517,7 @@ def test_al_confirmar_la_carga_se_leen_las_salas(cliente, vacio, ocr_falso, monk
     # Al terminar cambia: el visor vuelve a pedir el plano y ve las salas.
     assert cliente.get(f"{API}/edificios/{vacio}/novedades").json()["marca"] != marcas[0]
 
-    # Con las salas leídas, el N° de recinto ubica al elemento.
+    # Con las salas leídas, la sala ubica al elemento.
     creado = cliente.post(
         f"{API}/elementos", json={"tipo": "AP", "edificio": vacio, "piso": "P01", "numero_recinto": "9"}
     ).json()

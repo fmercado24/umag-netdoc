@@ -327,13 +327,14 @@ export function PanelDetalle({
               {bloqueoPosicion && <small className="nota">{bloqueoPosicion}</small>}
               {recintoNoEncontrado && (
                 <small className="nota">
-                  El recinto {detalle.numero_recinto} no aparece en las láminas de este piso:
-                  corrige el número (Editar) o ubícalo a mano.
+                  La sala {detalle.numero_recinto} no aparece en las láminas de este piso:
+                  corrígela en Editar → Sala del plano (por su nombre o su número) o ubícalo a mano.
                 </small>
               )}
               {!detalle.numero_recinto && !recinto && (
                 <small className="nota">
-                  Sin número de recinto: complétalo (Editar) y se ubicará solo en su sala.
+                  Sin sala: elígela en Editar → Sala del plano, por su nombre o su número, y se
+                  ubicará solo en ella.
                 </small>
               )}
             </div>

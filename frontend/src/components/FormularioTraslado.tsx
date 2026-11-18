@@ -12,13 +12,16 @@ import type { FormEvent } from 'react'
 import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from '../api/cliente'
 import {
   Campo,
-  ejemplosDeRecinto,
+  ayudaSala,
+  ejemploDeUbicacion,
   erroresDelServidor,
   leerUsuario,
   recordarUsuario,
   SIN_RACK,
   SOLO_CONECTADOS,
+  ubicacionDeSala,
 } from './camposFormulario'
+import { BuscadorSala } from './BuscadorSala'
 import type { Elemento, ElementoDetalle, Piso, PrevioTraslado, Recinto } from '../types'
 
 interface Props {
@@ -49,6 +52,7 @@ export function FormularioTraslado({
   const [previo, setPrevio] = useState<PrevioTraslado | null>(null)
   const [racks, setRacks] = useState<Elemento[]>([])
   const [recintos, setRecintos] = useState<Recinto[]>([])
+  const [ubicacionPuesta, setUbicacionPuesta] = useState('')
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
@@ -260,33 +264,29 @@ export function FormularioTraslado({
 
       {hayCambio && previo?.codigo_nuevo && (
         <>
-          <Campo etiqueta="Ubicación (recinto)" error={errores.ubicacion_descriptiva}>
+          <Campo etiqueta="Sala del plano" error={errores.numero_recinto} ayuda={ayudaSala(recintos)}>
+            <BuscadorSala
+              recintos={recintos}
+              valor={recinto}
+              onCambiar={setRecinto}
+              onElegir={(sala) => {
+                // La ubicación toma el nombre de la sala, salvo que se haya escrito otra.
+                const actual = ubicacion.trim()
+                if (actual === '' || actual === ubicacionPuesta) {
+                  setUbicacion(ubicacionDeSala(sala))
+                  setUbicacionPuesta(ubicacionDeSala(sala))
+                }
+              }}
+              conError={Boolean(errores.numero_recinto)}
+            />
+          </Campo>
+          <Campo etiqueta="Ubicación (detalle)" error={errores.ubicacion_descriptiva}>
             <input
               type="text"
               value={ubicacion}
-              placeholder={ejemplosDeRecinto(recintos).ubicacion}
+              placeholder={ejemploDeUbicacion(recintos)}
               onChange={(e) => setUbicacion(e.target.value)}
             />
-          </Campo>
-          <Campo
-            etiqueta="N° de recinto"
-            error={errores.numero_recinto}
-            ayuda="El código de la sala tal como aparece en el plano: con él queda ubicado ahí. Sin él, podrás marcarlo con un clic."
-          >
-            <input
-              type="text"
-              list="recintos-traslado"
-              value={recinto}
-              placeholder={ejemplosDeRecinto(recintos).numero}
-              onChange={(e) => setRecinto(e.target.value)}
-            />
-            <datalist id="recintos-traslado">
-              {recintos.map((r) => (
-                <option key={`${r.plano_id}-${r.numero}`} value={r.numero}>
-                  {r.nombre ?? ''}
-                </option>
-              ))}
-            </datalist>
           </Campo>
           {admiteRack && (
             <Campo

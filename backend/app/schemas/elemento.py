@@ -73,8 +73,11 @@ class ElementoCrear(_RedValidada):
     ubicacion_descriptiva: str | None = Field(default=None, max_length=200)
     numero_recinto: str | None = Field(
         default=None,
-        max_length=20,
-        description="Número de la sala en el plano (p. ej. 1083); vacío = el de la ubicación",
+        max_length=160,
+        description=(
+            "La sala del plano, por su código (1083, 09) o su nombre (Idiomas); se guarda su "
+            "código. Vacío = el de la ubicación"
+        ),
     )
     padre_codigo: str | None = Field(default=None, description="Código del rack contenedor")
     unidad_rack: int | None = None
@@ -109,7 +112,8 @@ class TrasladoPedido(BaseModel):
     piso: str
     tramo: str | None = None
     ubicacion_descriptiva: str | None = Field(default=None, max_length=200)
-    numero_recinto: str | None = Field(default=None, max_length=20)
+    #: La sala por su código o su nombre, como en el alta.
+    numero_recinto: str | None = Field(default=None, max_length=160)
     padre_codigo: str | None = None
     unidad_rack: int | None = Field(default=None, ge=1)
     usuario: str | None = Field(default=None, max_length=120)
@@ -154,7 +158,7 @@ class ElementoActualizar(_RedValidada):
     #: Lámina donde se dibuja (código de tramo); nulo = la de su propio tramo.
     tramo_lamina: str | None = None
     ubicacion_descriptiva: str | None = None
-    #: Al cambiarlo, el elemento pasa a ese recinto en el plano.
+    #: La sala, por su código o su nombre: al cambiarla, el elemento pasa a ella en el plano.
     numero_recinto: str | None = None
     padre_codigo: str | None = None
     unidad_rack: int | None = None

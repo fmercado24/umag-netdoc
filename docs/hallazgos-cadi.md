@@ -148,7 +148,7 @@ de la Sala de Grabación o si en realidad está montado en el rack 11.
 Al leer las láminas con OCR (`extraer_recintos`) y cruzarlas con las
 planillas, algunos números de sala no aparecen en la lámina de su piso. Sus
 elementos quedan sin ubicar hasta corregir el número (en el visor,
-*Editar → N° de recinto*) o ubicarlos a mano:
+*Editar → Sala del plano*) o ubicarlos a mano:
 
 | Planilla | Elementos | En la lámina | Qué hacer |
 |---|---|---|---|

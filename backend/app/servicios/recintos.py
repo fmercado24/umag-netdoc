@@ -6,7 +6,7 @@ bajo el nombre que dice el piso: los del subterráneo empiezan con 00
 (``0017``), los del primer piso con 1 (``1083``), y así. En la Biblioteca es
 un número de dos cifras que empieza de nuevo en cada piso (``09``, ``25A``).
 El sistema guarda cada código tal como lo escribe la lámina, y la ubicación de
-cada elemento anota ese mismo código («Oficina 1083», N° de recinto ``09``):
+cada elemento anota ese mismo código («Oficina 1083», sala ``09``):
 basta con encontrarlo en la lámina para saber dónde dibujar el elemento.
 
 * ``numero_de_recinto`` saca el código de sala de un texto de ubicación.
@@ -413,10 +413,15 @@ def buscar_recinto(elemento: Elemento) -> Recinto | None:
     # escrito antes de que se leyeran las salas: «BC-01-09-E», o una
     # ubicación como «Oficina administrativa 09».
     conocidos = codigos_del_piso(elemento.piso)
-    if not conocidos or numera_por_piso(conocidos, elemento.piso.codigo):
+    if not conocidos:
         return None
-    texto = elemento.numero_recinto or elemento.ubicacion_descriptiva
-    codigo = numero_de_recinto(texto, elemento.piso.codigo, conocidos)
+    if elemento.numero_recinto:
+        if numera_por_piso(conocidos, elemento.piso.codigo):
+            return None
+        codigo = numero_de_recinto(elemento.numero_recinto, elemento.piso.codigo, conocidos)
+    else:
+        # Sin número, la ubicación: su código o el nombre de una sola sala («Idiomas»).
+        codigo = codigo_de_la_ubicacion(elemento.ubicacion_descriptiva, elemento.piso)
     return _buscar_en_laminas(elemento, [codigo]) if codigo else None
 
 
@@ -666,6 +671,118 @@ def sugerir_recinto(elemento: Elemento, recintos: list[Recinto]) -> Recinto | No
     return propios[0] if len(propios) == 1 else None
 
 
+# --- Buscar una sala por su código o su nombre ---------------------------------
+def palabras_del_nombre(texto: str | None) -> list[str]:
+    """Las palabras y cifras de un nombre de sala, sin tildes ni palabras que no
+    distinguen: «Sala de reunión 2» → ['SALA', 'REUNION', '2']."""
+    base = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().upper()
+    return [p for p in re.findall(r"[A-Z]+|\d+", base) if p not in PALABRAS_VACIAS]
+
+
+def _esta(palabra: str, palabras: list[str], *, comienzo: bool) -> bool:
+    """Si ``palabra`` está entre ``palabras``: las cifras, iguales («2» y «02»);
+    las palabras, casi iguales (el OCR lee «OFIQINA») o, con ``comienzo``, como
+    comienzo de una («adm» en ADMINISTRATIVA)."""
+    if palabra.isdigit():
+        return any(p.isdigit() and int(p) == int(palabra) for p in palabras)
+    return any(
+        _misma_palabra(palabra, p) or (comienzo and len(palabra) >= 2 and p.startswith(palabra))
+        for p in palabras
+        if not p.isdigit()
+    )
+
+
+def _orden_natural(codigo: str) -> list:
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", codigo)]
+
+
+@dataclass
+class Busqueda:
+    #: La sala que nombra el texto, si es una sola.
+    sala: Recinto | None = None
+    #: Si nombra a varias, cuáles: hay que elegir una por su código.
+    varias: list[Recinto] = field(default_factory=list)
+
+
+def salas_con_nombre(texto: str | None, recintos: list[Recinto], *, exacto: bool = False) -> list[Recinto]:
+    """Las salas cuyo nombre es el del texto, una por código.
+
+    Primero las que tienen exactamente esas palabras («Sala de reunión» es
+    SALA REUNION). Si no hay ninguna y no se pide ``exacto``, las que contienen
+    todas las palabras escritas, aunque estén abreviadas: «conferencia» es
+    SALA CONFERENCIA y «of adm», OFICINA ADMINISTRATIVA.
+    """
+    buscadas = palabras_del_nombre(texto)
+    if not buscadas:
+        return []
+    salas = [r for r in recintos if not es_rotulo_de_rack(r.numero) and r.nombre]
+
+    def iguales(r: Recinto) -> bool:
+        suyas = palabras_del_nombre(r.nombre)
+        return all(_esta(p, suyas, comienzo=False) for p in buscadas) and all(
+            _esta(p, buscadas, comienzo=False) for p in suyas
+        )
+
+    def contiene(r: Recinto) -> bool:
+        suyas = palabras_del_nombre(r.nombre)
+        return all(_esta(p, suyas, comienzo=True) for p in buscadas)
+
+    halladas = [r for r in salas if iguales(r)]
+    if not halladas and not exacto:
+        halladas = [r for r in salas if contiene(r)]
+    una_por_codigo = {r.numero: r for r in reversed(halladas)}
+    return sorted(una_por_codigo.values(), key=lambda r: _orden_natural(r.numero))
+
+
+def buscar_sala(texto: str, codigo_piso: str, recintos: list[Recinto]) -> Busqueda:
+    """La sala del piso que dice el texto, por su código o por su nombre.
+
+    * El código como lo escribe la lámina, o casi: «09», «9», «25a», «1083».
+    * Un texto con el código: «Bodega 20», «Oficina 1083», «BC-01-09-E».
+    * El nombre: «Idiomas», «Sala de conferencia». Si varias salas se llaman
+      igual (la Biblioteca tiene doce «Oficina administrativa»), no se elige
+      ninguna: van en ``varias``, para escoger por el código.
+    """
+    salas = [r for r in recintos if not es_rotulo_de_rack(r.numero)]
+    conocidos = sorted({r.numero for r in salas})
+
+    def la_de(codigo: str) -> Recinto:
+        return next(r for r in salas if r.numero == codigo)
+
+    if codigo := buscar_codigo(texto.strip(), conocidos):
+        return Busqueda(sala=la_de(codigo))
+    if (codigo := numero_de_recinto(texto, codigo_piso, conocidos)) and codigo in conocidos:
+        return Busqueda(sala=la_de(codigo))
+    halladas = salas_con_nombre(texto, salas)
+    if len(halladas) == 1:
+        return Busqueda(sala=halladas[0])
+    return Busqueda(varias=halladas)
+
+
+def describir_varias(salas: list[Recinto], *, limite: int = 10) -> str:
+    """«07, 09, 13 y 9 más» si todas se llaman igual; si no, «23 (Sala
+    conferencia), 25A (Sala reunion)»."""
+    mismo_nombre = len({" ".join(palabras_del_nombre(r.nombre)) for r in salas}) == 1
+    partes = [r.numero if mismo_nombre else describir(r) for r in salas[:limite]]
+    texto = ", ".join(partes)
+    return texto + (f" y {len(salas) - limite} más" if len(salas) > limite else "")
+
+
+def codigo_de_la_ubicacion(texto: str | None, piso: Piso) -> str | None:
+    """El código de sala que trae un texto de ubicación, o None.
+
+    El código escrito en él («Oficina administrativa 09», «Oficina 1083») o,
+    si no trae uno, el de la única sala del piso que se llama exactamente así
+    («Idiomas»). Un nombre que tienen varias salas no ubica a ninguna.
+    """
+    recintos = recintos_del_piso(piso)
+    conocidos = sorted({r.numero for r in recintos if not es_rotulo_de_rack(r.numero)})
+    if codigo := numero_de_recinto(texto, piso.codigo, conocidos):
+        return codigo
+    halladas = salas_con_nombre(texto, recintos, exacto=True)
+    return halladas[0].numero if len(halladas) == 1 else None
+
+
 @dataclass
 class Pendiente:
     """Un elemento que no se pudo ubicar solo."""
@@ -809,13 +926,13 @@ def lineas_informe(
     if ubicacion.no_encontrados:
         lineas.append(
             f"Con un recinto que no aparece en las láminas de su piso ({len(ubicacion.no_encontrados)}):"
-            " corrija el N° de recinto en el visor (Editar) o ubíquelos a mano"
+            " corrija su sala en el visor (Editar → Sala del plano) o ubíquelos a mano"
         )
         lineas.extend(agrupados(ubicacion.no_encontrados))
     if ubicacion.sin_numero:
         lineas.append(
             f"Sin número de recinto ({len(ubicacion.sin_numero)}): complételo en el visor "
-            "(Editar → N° de recinto) y se ubicarán solos"
+            "(Editar → Sala del plano) y se ubicarán solos"
         )
         lineas.extend(agrupados(ubicacion.sin_numero))
     return lineas

@@ -91,6 +91,28 @@ command -v apt-get >/dev/null && command -v systemctl >/dev/null ||
   fallar "este script es para Ubuntu con systemd"
 [[ -d "$ORIGEN/backend/app" ]] || fallar "no encuentro el código en $ORIGEN"
 
+# --- La carpeta del repositorio, de quien instala -----------------------------------
+# Clonada con sudo, o tras un «sudo git pull», la carpeta queda de root y git no
+# deja usarla sin sudo («detected dubious ownership», «Permission denied»). Queda
+# a nombre de quien ejecuta sudo: así usa git en ella sin sudo. A /opt/netdoc se
+# copia igual como root (rsync --chown=root:root), así que el servicio no gana nada.
+devolver_carpeta() {
+  local persona="${SUDO_USER:-}" dueno
+  [[ -n "$persona" && "$persona" != root && "$ORIGEN" != / && "$ORIGEN" != "$APP" ]] || return 0
+  [[ -d "$ORIGEN/.git" ]] && id -u "$persona" >/dev/null 2>&1 || return 0
+  dueno="$(stat -c %U "$ORIGEN")"
+  if [[ "$dueno" != root && "$dueno" != "$persona" ]]; then
+    aviso "La carpeta $ORIGEN es de $dueno: se deja como está (git en ella, como $dueno)."
+    return 0
+  fi
+  # Ya es suya, sin nada de root adentro: no hay nada que hacer.
+  [[ "$dueno" == "$persona" && -z "$(find "$ORIGEN" ! -user "$persona" -print -quit 2>/dev/null)" ]] && return 0
+  paso "Dejando $ORIGEN a nombre de $persona"
+  chown -R "$persona": "$ORIGEN"
+  echo "    Desde ahora, git en esa carpeta va sin sudo: git pull, git status…"
+}
+devolver_carpeta
+
 # --- ¿Hay una versión nueva en GitHub? ---------------------------------------------
 # Solo si ya está instalado y el código vino con git clone. Una falla de red o
 # de git no impide seguir con la versión que ya está en la carpeta.

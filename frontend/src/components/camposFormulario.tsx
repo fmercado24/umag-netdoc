@@ -25,14 +25,22 @@ export function ejemploDeSala(recintos: Recinto[]): Recinto | undefined {
   return recintos.find((r) => !/^R\d{2,3}$/.test(r.numero))
 }
 
-/** Los ejemplos de Ubicación y N° de recinto, con una sala del piso si la hay. */
-export function ejemplosDeRecinto(recintos: Recinto[]): { ubicacion: string; numero: string } {
+/** El ejemplo de Ubicación, con una sala del piso si la hay. */
+export function ejemploDeUbicacion(recintos: Recinto[]): string {
   const sala = ejemploDeSala(recintos)
-  if (!sala) return { ubicacion: 'Ej.: Oficina 1083', numero: 'Ej.: 1083' }
-  return {
-    ubicacion: `Ej.: ${sala.nombre ?? 'Oficina'} ${sala.numero}`,
-    numero: `Ej.: ${sala.numero}`,
-  }
+  return sala ? `Ej.: ${sala.nombre ?? 'Oficina'} ${sala.numero}` : 'Ej.: Oficina 1083'
+}
+
+/** La ubicación que corresponde a una sala elegida: «Oficina administrativa 09». */
+export function ubicacionDeSala(sala: Recinto): string {
+  return [sala.nombre, sala.numero].filter(Boolean).join(' ')
+}
+
+/** La ayuda del campo Sala, según si el piso ya tiene sus salas leídas. */
+export function ayudaSala(recintos: Recinto[]): string {
+  return ejemploDeSala(recintos)
+    ? 'Escribe el nombre o el número de la sala, como en el plano, y elígela de la lista: el equipo queda ahí. Sin sala, podrás ubicarlo con un clic.'
+    : 'Las salas de este piso aún no se leen de su plano: escribe el código de la sala o déjalo vacío y ubícalo con un clic.'
 }
 
 export function leerUsuario(): string {
