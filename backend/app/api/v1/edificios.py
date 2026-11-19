@@ -42,6 +42,7 @@ from app.schemas.organizacion import (
     TramoLeer,
 )
 from app.servicios import carga_planos, lectura_recintos
+from app.servicios.latidos import fuentes_sin_latido
 from app.servicios.novedades import marca_del_edificio
 from app.servicios.planos import (
     FormatoNoAdmitido,
@@ -91,9 +92,14 @@ def novedades(codigo: str, sesion: SesionBD) -> dict:
     El visor la consulta cada pocos segundos para mostrar lo que hacen las demás
     personas: es barata, y solo si no es la que vino con el plano vuelve a pedirlo,
     junto con la ficha abierta. No cuenta como actividad de la sesión
-    (``servicios.proteccion``).
+    (``servicios.proteccion``). Trae también las herramientas de monitoreo que
+    dejaron de informar, para que el visor advierta que el estado operativo puede
+    no estar al día (``servicios.latidos``).
     """
-    return {"marca": marca_del_edificio(sesion, obtener_edificio(sesion, codigo))}
+    return {
+        "marca": marca_del_edificio(sesion, obtener_edificio(sesion, codigo)),
+        "monitoreo_sin_latido": fuentes_sin_latido(sesion),
+    }
 
 
 @router.delete("/{codigo}/planos", response_model=PlanosQuitados)

@@ -53,13 +53,17 @@ from pathlib import Path
 from app.scripts.cargar_planos import archivos_de_laminas
 from app.scripts.importar_edificio import (
     DIR_DATA,
-    EQ_UBICACION,
-    PD_ROSETA,
-    PD_UBICACION,
     descubrir_planillas,
     nombre_recinto,
-    piso_y_tramo,
     texto_csv,
+)
+from app.servicios.planillas import (
+    COLUMNAS_EQUIPO,
+    COLUMNAS_PUNTOS,
+    POSICIONES_EQUIPO,
+    POSICIONES_PUNTOS,
+    columnas_de,
+    piso_y_tramo,
 )
 from app.servicios import ocr_recintos
 from app.servicios.ocr_recintos import SinOcr, leer_recintos_de_lamina, parecido
@@ -94,22 +98,29 @@ def recintos_de_las_planillas(dir_datos: Path, prefijo: str) -> dict[tuple[str, 
     """(piso, número) → cómo nombran las planillas ese recinto."""
     nombres: dict[tuple[str, str], set[str]] = defaultdict(set)
 
-    def filas(ruta: Path) -> list[list[str]]:
+    def filas(ruta: Path, campos: dict, posiciones: dict) -> list[dict[str, str]]:
+        """Cada fila como {campo: valor}, con las columnas en cualquier orden."""
         if not ruta.is_file():
             return []
         texto, separador, _ = texto_csv(ruta)
-        return list(csv.reader(io.StringIO(texto, newline=""), delimiter=separador))[1:]
+        todas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=separador))
+        if not todas:
+            return []
+        indices = columnas_de(todas[0], campos, posiciones).indices
+        return [
+            {c: fila[i].strip() for c, i in indices.items() if len(fila) > i} for fila in todas[1:]
+        ]
 
     for archivo, codigo_piso, _ in descubrir_planillas(dir_datos, prefijo):
-        for fila in filas(dir_datos / archivo):
-            ubicacion = fila[EQ_UBICACION].strip() if len(fila) > EQ_UBICACION else ""
-            if numero := numero_de_recinto(ubicacion, codigo_piso):
-                nombres[codigo_piso, numero].add(ubicacion)
-    for fila in filas(dir_datos / f"{prefijo}-puntos-de-datos.csv"):
-        piso_tramo = piso_y_tramo(fila[PD_UBICACION]) if len(fila) > PD_UBICACION else None
-        if piso_tramo is None or len(fila) <= PD_ROSETA:
+        for fila in filas(dir_datos / archivo, COLUMNAS_EQUIPO, POSICIONES_EQUIPO):
+            for texto in (fila.get("sala", ""), fila.get("ubicacion", "")):
+                if numero := numero_de_recinto(texto, codigo_piso):
+                    nombres[codigo_piso, numero].add(texto)
+    for fila in filas(dir_datos / f"{prefijo}-puntos-de-datos.csv", COLUMNAS_PUNTOS, POSICIONES_PUNTOS):
+        piso_tramo = piso_y_tramo(fila.get("ubicacion", ""))
+        if piso_tramo is None:
             continue
-        recinto = nombre_recinto(fila[PD_ROSETA])
+        recinto = nombre_recinto(fila.get("roseta", ""))
         if numero := numero_de_recinto(recinto, piso_tramo[0]):
             nombres[piso_tramo[0], numero].add(recinto)
     return nombres

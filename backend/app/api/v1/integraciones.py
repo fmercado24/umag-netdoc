@@ -3,6 +3,8 @@
 * ``POST /monitoreo/estado`` — webhook genérico; lo usa Zabbix
   (``deploy/zabbix/``) o cualquier herramienta que pueda hacer un POST.
 * ``POST /alertmanager`` — webhook de Alertmanager, para el stack Prometheus.
+* ``POST /monitoreo/latido`` — «sigo funcionando», aunque no haya novedades
+  (``app.servicios.latidos``). Todo aviso con el token cuenta también como latido.
 * ``GET /prometheus/objetivos`` — descubrimiento de servicios HTTP de
   Prometheus: el inventario le dice qué IP vigilar y con qué etiquetas.
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -24,6 +27,7 @@ from app.core.config import configuracion
 from app.models import Edificio, Elemento, EstadoOperativo, TipoElemento
 from app.schemas.elemento import EstadoMonitoreo
 from app.servicios.autenticacion import token_monitoreo_valido
+from app.servicios.latidos import ALERTA_LATIDO, RE_FUENTE, registrar_contacto
 from app.servicios.monitoreo import (
     EstadoNoReconocido,
     aplicar_evento,
@@ -44,6 +48,35 @@ def _verificar_token(token: str | None, authorization: str | None) -> None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de monitoreo inválido")
 
 
+def _error(codigo: int, mensaje: str) -> JSONResponse:
+    """La misma respuesta que una HTTPException, pero sin deshacer la transacción."""
+    return JSONResponse({"detail": mensaje}, status_code=codigo)
+
+
+class Latido(BaseModel):
+    fuente: str = Field(default="zabbix", description="Herramienta que avisa, en minúsculas")
+
+
+@router.post("/monitoreo/latido")
+def recibir_latido(
+    sesion: SesionBD,
+    datos: Latido | None = None,
+    x_netdoc_token: str | None = Header(default=None, alias="X-NetDoc-Token"),
+    authorization: str | None = Header(default=None),
+):
+    """«Sigo funcionando»: la herramienta de monitoreo avisa aunque no haya
+    novedades, para que su silencio no se confunda con una red sin fallas."""
+    _verificar_token(x_netdoc_token, authorization)
+    fuente = (datos or Latido()).fuente.strip().lower()
+    if not RE_FUENTE.match(fuente):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "La fuente va en minúsculas, con letras, cifras, guiones o guiones bajos",
+        )
+    registrar_contacto(sesion, fuente)
+    return {"fuente": fuente, "registrado": True}
+
+
 @router.post("/monitoreo/estado")
 def sincronizar_estado(
     datos: EstadoMonitoreo,
@@ -52,18 +85,23 @@ def sincronizar_estado(
     authorization: str | None = Header(default=None),
 ):
     """Sincroniza el estado operativo de un elemento identificado por código
-    o por dirección IP de gestión."""
+    o por dirección IP de gestión.
+
+    Los errores se responden sin lanzar excepciones: así queda el latido de
+    Zabbix aunque el equipo no esté documentado.
+    """
     _verificar_token(x_netdoc_token, authorization)
+    registrar_contacto(sesion, "zabbix")
 
     if not datos.codigo and not datos.direccion_ip:
-        raise HTTPException(
+        return _error(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "Debe indicarse 'codigo' o 'direccion_ip' para identificar el elemento",
         )
 
     elemento = buscar_elemento(sesion, datos.codigo, datos.direccion_ip)
     if elemento is None:
-        raise HTTPException(
+        return _error(
             status.HTTP_404_NOT_FOUND,
             f"No hay un elemento documentado para {datos.codigo or datos.direccion_ip}",
         )
@@ -78,7 +116,7 @@ def sincronizar_estado(
             comentario=datos.comentario,
         )
     except EstadoNoReconocido as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
 
     respuesta = {
         "codigo": resultado.codigo,
@@ -125,10 +163,15 @@ def recibir_alertmanager(
     aplicar se informa en ``resultados``.
     """
     _verificar_token(x_netdoc_token, authorization)
+    registrar_contacto(sesion, "alertmanager")
 
     resultados = []
     for alerta in datos.alerts:
         nombre = alerta.labels.get("alertname", "alerta")
+        if nombre == ALERTA_LATIDO:
+            # Siempre activa: solo dice que Prometheus y Alertmanager funcionan.
+            resultados.append({"alerta": nombre, "latido": True})
+            continue
         codigo = alerta.labels.get("netdoc_codigo")
         ip = ip_de_instancia(alerta.labels.get("instance"))
         elemento = buscar_elemento(sesion, codigo, ip)

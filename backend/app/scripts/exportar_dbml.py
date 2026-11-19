@@ -41,7 +41,7 @@ GRUPOS: dict[str, tuple[str, str, list[str]]] = {
     "logica": (
         "Lógica y conectividad",
         "#e8710a",
-        ["vlan", "elemento_vlan", "enlace", "identificador_externo"],
+        ["vlan", "elemento_vlan", "enlace", "identificador_externo", "latido_monitoreo"],
     ),
     "acceso": ("Acceso", "#dc2626", ["sesion_acceso", "intento_ingreso"]),
 }

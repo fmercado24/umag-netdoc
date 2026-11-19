@@ -40,6 +40,7 @@ from app.models import (
     Piso,
 )
 from app.servicios.historial import registrar_cambios
+from app.servicios.validacion import leer_fecha
 
 #: "P01", "p1" o "1" («Piso 1» se lleva antes a "P1"); el subterráneo es el piso 0.
 RE_PISO = re.compile(r"^p?(\d{1,2})$", re.IGNORECASE)
@@ -83,12 +84,11 @@ def _fecha(texto: str | None, fila: int, columna: str) -> dt.date | None:
     texto = (texto or "").strip()
     if not texto:
         return None
-    try:
-        return dt.date.fromisoformat(texto)
-    except ValueError:
-        raise ArchivoLevantamientoInvalido(
-            f"fila {fila}: {columna} «{texto}» no es una fecha AAAA-MM-DD"
-        ) from None
+    if fecha := leer_fecha(texto):
+        return fecha
+    raise ArchivoLevantamientoInvalido(
+        f"fila {fila}: {columna} «{texto}» no es una fecha (AAAA-MM-DD o DD-MM-AAAA)"
+    )
 
 
 def _pisos(texto: str | None, fila: int) -> tuple[str, ...]:

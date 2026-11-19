@@ -310,6 +310,24 @@ notificaciones durante la intervención.
 
 ---
 
+## Latido
+
+Los avisos llegan solo cuando un equipo cae o se recupera: si la herramienta de
+monitoreo deja de funcionar, NetDoc no se entera. Por eso cada una manda además un
+latido periódico, y si pasan más de `NETDOC_MONITOREO_LATIDO_MINUTOS` (15) sin
+noticias, el visor muestra una franja que advierte que el estado operativo puede
+no estar al día.
+
+- **Opción A:** ya está configurado. La regla `NetDocLatido` de
+  `deploy/prometheus/reglas.yml` siempre está activa, y `deploy/alertmanager/alertmanager.yml`
+  la reenvía a NetDoc cada 5 minutos.
+- **Opción B:** requiere un disparador siempre en problema y una acción que repita el
+  envío; los pasos están en [`deploy/zabbix/README.md`](../deploy/zabbix/README.md#latido).
+
+Para comprobarlo, detenga la herramienta: a los 15 minutos aparece la franja en el
+visor, y `netdoc_monitoreo_al_dia{fuente="…"}` pasa a 0 en `/metrics`. El detalle
+está en [integraciones](integraciones.md#latido).
+
 ## Verificación de extremo a extremo
 
 - [ ] NetDoc arranca con `NETDOC_MONITOREO_TOKEN` definido.

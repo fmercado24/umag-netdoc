@@ -318,6 +318,13 @@ Table identificador_externo [headercolor: #e8710a] {
   Note: 'El id que otro sistema le asignó a un elemento.'
 }
 
+Table latido_monitoreo [headercolor: #e8710a] {
+  fuente varchar(40) [pk]
+  ultimo_contacto timestamptz [not null]
+
+  Note: 'Cuándo se supo por última vez de cada herramienta de monitoreo.'
+}
+
 Table sesion_acceso [headercolor: #dc2626] {
   id integer [pk, increment]
   token_hash varchar(64) [not null, unique]
@@ -465,6 +472,7 @@ TableGroup logica [color: #e8710a] {
   elemento_vlan
   enlace
   identificador_externo
+  latido_monitoreo
   Note: 'Lógica y conectividad'
 }
 

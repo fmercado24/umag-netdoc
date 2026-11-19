@@ -286,6 +286,14 @@ code {
   flex-shrink: 0;
 }
 
+.franja-alerta {
+  padding: 8px 20px;
+  background: #fffbeb;
+  color: #78350f;
+  border-bottom: 1px solid #fcd34d;
+  overflow-wrap: anywhere;
+}
+
 .franja-error {
   display: flex;
   justify-content: space-between;

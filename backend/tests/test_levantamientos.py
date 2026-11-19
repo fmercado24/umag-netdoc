@@ -38,10 +38,18 @@ def test_lee_fechas_pisos_y_punto_y_coma(tmp_path):
     assert leer_levantamientos(tmp_path / "no-existe.csv") == []
 
 
+@pytest.mark.parametrize("texto", ["2026-09-15", "15-09-2026", "15/09/2026", "15.9.2026"])
+def test_fechas_como_las_exporta_excel(tmp_path, texto):
+    ruta = tmp_path / "x-levantamiento.csv"
+    ruta.write_text(f"fecha_inicio,fecha_cierre,pisos,observaciones\n{texto},,,\n", encoding="utf-8")
+    assert leer_levantamientos(ruta)[0].fecha == dt.date(2026, 9, 15)
+
+
 @pytest.mark.parametrize(
     ("fila", "mensaje"),
     [
-        ("15-09-2026,,,", "no es una fecha"),
+        ("31-02-2026,,,", "no es una fecha"),
+        ("septiembre,,,", "no es una fecha"),
         (",2026-09-16,,", "falta la fecha_inicio"),
         ("2026-09-16,2026-09-15,,", "anterior a la fecha_inicio"),
         ("2026-09-15,,Mezzanine,", "no es un piso"),

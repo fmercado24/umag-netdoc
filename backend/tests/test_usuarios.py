@@ -400,6 +400,7 @@ CASOS = [
     # Los avisos de monitoreo no usan la sesión: exigen su token.
     ("POST", f"{_I}/monitoreo/estado", f"{_I}/monitoreo/estado", {"json": {"codigo": "AJE-SW01-P01", "estado": "caido"}}, 401),
     ("POST", f"{_I}/alertmanager", f"{_I}/alertmanager", {"json": {"status": "firing", "alerts": []}}, 401),
+    ("POST", f"{_I}/monitoreo/latido", f"{_I}/monitoreo/latido", {"json": {}}, 401),
 ]
 
 

@@ -52,6 +52,7 @@ flowchart LR
 | `GET /metrics` | Métricas de inventario (ver abajo), latencia de la API por ruta y métricas del proceso |
 | `GET /api/v1/integraciones/prometheus/objetivos` | Descubrimiento HTTP (`http_sd_configs`): un objetivo por elemento con IP, con etiquetas `netdoc_codigo`, `netdoc_tipo`, `netdoc_edificio`, `netdoc_piso`, `netdoc_tramo` y `netdoc_criticidad`. Admite `?edificio=` y `?tipo=` |
 | `POST /api/v1/integraciones/alertmanager` | Webhook de Alertmanager: una alerta activa deja el elemento "en falla" y una resuelta, "activo" |
+| `POST /api/v1/integraciones/monitoreo/latido` | «Sigo funcionando» de una herramienta de monitoreo, aunque no haya novedades ([latido](#latido)) |
 | `deploy/prometheus/` | `prometheus.yml` (lee NetDoc y hace ping con blackbox a lo que descubre), `reglas.yml`, `blackbox.yml` |
 | `deploy/alertmanager/` | Solo las alertas `netdoc="disponibilidad"` van a NetDoc |
 | `deploy/grafana/` | Origen de datos y el panel "NetDoc — Inventario y estado" |
@@ -105,6 +106,29 @@ del umbral del SOP §11.3.
 
 Instrucciones paso a paso en el [manual de monitoreo](manual-monitoreo.md#opción-b-zabbix)
 y en [`deploy/zabbix/README.md`](../deploy/zabbix/README.md).
+
+### Latido
+
+Los avisos de monitoreo llegan solo cuando algo cambia (modelo *push*): si Zabbix o
+Alertmanager dejan de funcionar, NetDoc no recibe nada, y ese silencio se confundiría
+con una red sin fallas. Por eso NetDoc anota cuándo supo de cada herramienta: cuenta
+todo aviso que llega con el token, y además un latido periódico, `POST
+/api/v1/integraciones/monitoreo/latido` (`{"fuente": "zabbix"}`, con el mismo token).
+Alertmanager lo manda con la alerta `NetDocLatido`, que siempre está activa
+(`deploy/prometheus/reglas.yml`); Zabbix, con un problema siempre abierto
+([`deploy/zabbix/README.md`](../deploy/zabbix/README.md#latido)).
+
+Si una herramienta que ya informó pasa más de `NETDOC_MONITOREO_LATIDO_MINUTOS` (15)
+sin noticias, el visor muestra una franja: «Zabbix no informa desde hace 40 minutos.
+El estado operativo de los elementos puede no estar al día». `/metrics` expone
+`netdoc_monitoreo_ultimo_contacto_timestamp_seconds` y `netdoc_monitoreo_al_dia` por
+fuente, y la regla `NetDocMonitoreoSinLatido` alerta. Una herramienta que nunca
+informó no se vigila, para que una instalación sin monitoreo no muestre avisos; con
+`NETDOC_MONITOREO_LATIDO_MINUTOS=0` no se avisa nunca.
+
+Nada de esto se ha probado con Zabbix, Prometheus ni Alertmanager reales: la
+universidad aún no implementa Zabbix, y aquí no se pudieron ejecutar los otros dos.
+Las pruebas automáticas (`tests/test_latidos.py`) reproducen sus mensajes.
 
 ## Otros inventarios (NetBox, GLPI u otros)
 
@@ -201,6 +225,7 @@ elementos, mostrar el plan, aplicarlo con `--aplicar` y guardar los ids.
 | `NETDOC_CARGA_MAX_MB` | Tamaño máximo de un plano o fotografía que se carga por la API (100) |
 | `NETDOC_MONITOREO_TOKEN` | Token de los webhooks de Zabbix y Alertmanager y de las lecturas de `/metrics` y `/api/v1/integraciones/`; vacío los deshabilita |
 | `NETDOC_MONITOREO_MINUTOS_FALLA` | Umbral de caída cuando el evento informa los minutos |
+| `NETDOC_MONITOREO_LATIDO_MINUTOS` | Minutos sin noticias de una herramienta de monitoreo tras los que el visor avisa (15; 0 lo desactiva) |
 | `NETDOC_ZABBIX_URL`, `NETDOC_ZABBIX_TOKEN` | API de Zabbix para el conector |
 | `NETDOC_ZABBIX_GRUPO_RAIZ`, `NETDOC_ZABBIX_TIPOS`, `NETDOC_ZABBIX_PLANTILLAS`, `NETDOC_ZABBIX_COMUNIDAD_SNMP` | Qué y cómo se crea en Zabbix |
 | `NETDOC_API_HOST` | Interfaz donde escucha `iniciar.sh`; fuera de este equipo, solo por HTTPS (`0.0.0.0` para el perfil de monitoreo) |

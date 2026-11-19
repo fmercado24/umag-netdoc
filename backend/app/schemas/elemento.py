@@ -13,7 +13,7 @@ from app.models.enums import (
     OrigenCambio,
 )
 from app.schemas.organizacion import PlanoLeer, RecintoLeer
-from app.servicios.validacion import NORMALIZAR
+from app.servicios.validacion import NORMALIZAR, limpiar_texto
 
 BASE = ConfigDict(from_attributes=True)
 
@@ -21,16 +21,40 @@ BASE = ConfigDict(from_attributes=True)
 # --------------------------------------------------------------------------
 # Entrada
 # --------------------------------------------------------------------------
-class _RedValidada(BaseModel):
-    """Formato de IP, MAC y N° de inventario, común al alta y a la edición.
-    Vacío = sin dato."""
+#: Textos de una línea que se guardan limpios: sin espacios de más ni invisibles.
+TEXTOS = (
+    "etiqueta", "ubicacion_descriptiva", "numero_recinto", "marca", "modelo",
+    "rack_origen", "padre_codigo", "tramo", "tramo_lamina", "usuario",
+)
+
+
+class _TextosLimpios(BaseModel):
+    """Los textos llegan del visor, de la API o de una planilla copiada desde
+    Excel: se guardan sin espacios al comienzo ni al final, con uno solo entre
+    palabras y sin caracteres invisibles. Vacío = sin dato."""
+
+    @field_validator(*TEXTOS, mode="before", check_fields=False)
+    @classmethod
+    def _texto(cls, valor: object) -> object:
+        return limpiar_texto(valor) if isinstance(valor, str) else valor
+
+    @field_validator("observaciones", "comentario", mode="before", check_fields=False)
+    @classmethod
+    def _texto_largo(cls, valor: object) -> object:
+        return limpiar_texto(valor, multilinea=True) if isinstance(valor, str) else valor
+
+
+class _RedValidada(_TextosLimpios):
+    """Formato de IP, MAC, N° de serie y N° de inventario, común al alta y a la
+    edición. Vacío = sin dato."""
 
     @field_validator(*NORMALIZAR, check_fields=False)
     @classmethod
     def _normalizar(cls, valor: str | None, info: ValidationInfo) -> str | None:
-        if valor is None or not valor.strip():
+        texto = limpiar_texto(valor)
+        if texto is None:
             return None
-        return NORMALIZAR[info.field_name](valor.strip())
+        return NORMALIZAR[info.field_name](texto)
 
 
 class ElementoCrear(_RedValidada):
@@ -93,7 +117,7 @@ class ElementoCrear(_RedValidada):
     atributos: dict = Field(default_factory=dict, description="Ficha específica del tipo")
 
 
-class TrasladoPedido(BaseModel):
+class TrasladoPedido(_TextosLimpios):
     """A dónde va, dentro de su edificio. Lo que depende del lugar puede indicarse:
     si se omite, en el mismo piso se conserva y en otro piso se borra, porque ya no
     significaría nada."""

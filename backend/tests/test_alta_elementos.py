@@ -211,7 +211,9 @@ def test_numero_de_inventario_umag(cliente):
     malo = cliente.patch(f"{API}/elementos/{codigo}", json={"numero_inventario": "INV-45912"})
     assert malo.status_code == 422
     assert "solo cifras" in malo.json()["detail"][0]["msg"]
-    assert _alta(cliente, tipo="SW", piso="P46", tramo="T1", numero_inventario="12 34").status_code == 422
+    # Los espacios y separadores se limpian: el N° queda solo con sus cifras.
+    con_espacios = _alta(cliente, tipo="SW", piso="P46", tramo="T1", numero_inventario="12 34")
+    assert con_espacios.json()["numero_inventario"] == "1234"
 
     # Se busca por él, y su cambio queda en el historial.
     encontrados = cliente.get(f"{API}/elementos", params={"q": "0045912"}).json()["items"]

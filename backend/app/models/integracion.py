@@ -42,3 +42,20 @@ class IdentificadorExterno(Base, MixinTiempos):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<IdentificadorExterno {self.sistema}:{self.id_externo}>"
+
+
+class LatidoMonitoreo(Base):
+    """Cuándo se supo por última vez de cada herramienta de monitoreo.
+
+    Los avisos de monitoreo llegan solo cuando algo cambia (modelo *push*): sin
+    este registro, una herramienta caída no se distingue de una red sin fallas.
+    Cada aviso que llega con el token, o un latido explícito, actualiza la hora;
+    si pasan más de ``NETDOC_MONITOREO_LATIDO_MINUTOS`` sin noticias, el visor lo
+    advierte (``app.servicios.latidos``).
+    """
+
+    __tablename__ = "latido_monitoreo"
+
+    #: "zabbix" (webhook genérico), "alertmanager" u otra herramienta.
+    fuente: Mapped[str] = mapped_column(String(40), primary_key=True)
+    ultimo_contacto: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -29,6 +29,7 @@ historial (SOP §11.3). Un elemento "en mantenimiento" no cambia.
      | `event_value` | `{EVENT.VALUE}` |
      | `event_update_status` | `{EVENT.UPDATE.STATUS}` |
      | `event_name` | `{EVENT.NAME}` |
+     | `latido` | `{EVENT.TAGS.netdoc_latido}` |
 3. Asignar el medio a un usuario (por ejemplo `netdoc`, con "Enviar a" `netdoc`).
    Su grupo necesita permiso de lectura sobre los grupos de hosts vigilados:
    Zabbix solo notifica eventos de hosts que el usuario puede ver.
@@ -45,6 +46,24 @@ El elemento se reconoce por `{HOST.HOST}` si es su código (así se llaman los
 hosts que crea el conector del punto 2) y, si no, por `{HOST.IP}`. Un host
 que no está documentado en NetDoc no es un error: el envío queda como
 exitoso con la nota "NetDoc no tiene documentado…".
+
+### Latido
+
+Zabbix avisa solo cuando algo cambia: si deja de funcionar, NetDoc no recibe
+nada y no puede distinguirlo de una red sin fallas. Para eso, Zabbix manda un
+latido periódico, y si pasan más de `NETDOC_MONITOREO_LATIDO_MINUTOS` (15) sin
+noticias, el visor advierte que el estado operativo puede no estar al día.
+
+1. Un disparador que siempre esté en problema, en el host del propio servidor
+   de Zabbix, con la etiqueta `netdoc_latido` = `1`. Por ejemplo, sobre el ítem
+   interno `zabbix[uptime]`, la expresión `last(/Zabbix server/zabbix[uptime])>=0`.
+2. Una acción de disparador con la condición *Tag name* = `netdoc_latido` que
+   envíe al usuario `netdoc` por el medio `NetDoc`, con la operación en los pasos
+   **1 a 0** (sin fin) y una duración de paso de **5 minutos**: así se repite
+   mientras el problema siga abierto.
+
+Cualquier aviso de un host cuenta también como latido. **Esta configuración no
+se ha probado con un Zabbix real**: la universidad aún no lo tiene en operación.
 
 ## 2. NetDoc → Zabbix: hosts desde el inventario
 

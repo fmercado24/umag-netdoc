@@ -146,6 +146,7 @@ de retención permanente que exige la sección 12 del SOP.
 | `vlan` | VLAN y subred (SOP §7.1, categoría lógica). El número es único **por edificio**: la VLAN 3 del CADI y la de otro edificio son registros distintos |
 | `elemento_vlan` | Qué elemento materializa qué VLAN y en qué rol |
 | `identificador_externo` | Id del elemento en otro sistema (NetBox, GLPI, Zabbix…): uno por sistema y elemento. Lo usan los conectores para sincronizar sin duplicar ([integraciones](integraciones.md)) |
+| `latido_monitoreo` | Cuándo se supo por última vez de cada herramienta de monitoreo (Zabbix, Alertmanager), para advertir cuando deja de informar ([latido](integraciones.md#latido)) |
 | `enlace` | Conexión física. Cubre tanto el uplink de un switch (§9.2.1) como el mapeo puerto de patch panel → punto de datos (§9.2.3). `destino_descripcion` permite registrar el destino como texto mientras no exista como elemento documentado |
 
 ### Acceso

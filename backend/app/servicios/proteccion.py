@@ -34,6 +34,7 @@ RUTAS_PUBLICAS = frozenset(
         "/api/v1/auth/ingresar",
         "/api/v1/integraciones/monitoreo/estado",
         "/api/v1/integraciones/alertmanager",
+        "/api/v1/integraciones/monitoreo/latido",
     }
 )
 PREFIJOS_PUBLICOS = ("/assets/",)

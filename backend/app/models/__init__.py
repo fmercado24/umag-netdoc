@@ -22,7 +22,7 @@ from app.models.enums import (
     RolVlan,
     TipoDato,
 )
-from app.models.integracion import IdentificadorExterno
+from app.models.integracion import IdentificadorExterno, LatidoMonitoreo
 from app.models.logico import ElementoVlan, Enlace, Vlan
 from app.models.organizacion import Edificio, Persona, Piso, Plano, Recinto, Tramo
 
@@ -42,6 +42,7 @@ __all__ = [
     "Fotografia",
     "HistorialElemento",
     "IdentificadorExterno",
+    "LatidoMonitoreo",
     "IntentoIngreso",
     "Levantamiento",
     "MedioEnlace",

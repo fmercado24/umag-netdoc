@@ -19,3 +19,22 @@ groups:
           severity: warning
         annotations:
           summary: NetDoc o su base de datos no responden
+
+      # Latido (requisito RNF5): siempre activa. Alertmanager la reenvía a NetDoc
+      # cada 5 minutos; si deja de llegar, NetDoc advierte que el estado operativo
+      # puede no estar al día (NETDOC_MONITOREO_LATIDO_MINUTOS).
+      - alert: NetDocLatido
+        expr: vector(1)
+        labels:
+          severity: none
+          netdoc: latido
+        annotations:
+          summary: Prometheus y Alertmanager funcionan
+
+      # Al revés: una herramienta que informaba a NetDoc dejó de hacerlo.
+      - alert: NetDocMonitoreoSinLatido
+        expr: netdoc_monitoreo_al_dia == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.fuente }} no informa a NetDoc dentro del plazo del latido"

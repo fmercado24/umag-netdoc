@@ -65,7 +65,9 @@ export function convertirAtributo(texto: string, definicion: DefinicionAtributo)
   if (limpio === '') return null
   switch (definicion.tipo_dato) {
     case 'numero': {
-      const numero = Number(limpio.replace(',', '.'))
+      // Como en el servidor (app/servicios/validacion.py): «12,5» y «1500 VA» son números.
+      const partes = limpio.match(/^(-?\d+(?:[.,]\d+)?)\s*[A-Za-z%°]{0,10}\.?$/)
+      const numero = partes ? Number(partes[1].replace(',', '.')) : NaN
       if (Number.isNaN(numero)) throw new Error('debe ser un número')
       return numero
     }
@@ -73,7 +75,7 @@ export function convertirAtributo(texto: string, definicion: DefinicionAtributo)
       return limpio === 'true'
     case 'lista':
       return limpio
-        .split(',')
+        .split(/[,;\n]/)
         .map((parte) => parte.trim())
         .filter(Boolean)
     default:

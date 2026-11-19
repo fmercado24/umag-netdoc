@@ -11,6 +11,7 @@ import type {
   Enumeraciones,
   HistorialEntrada,
   LaminaPendiente,
+  Novedades,
   Piso,
   Plano,
   PlanosQuitados,
@@ -272,7 +273,7 @@ export const api = {
     pedir<Plano>(`/edificios/${edificio}/planos/${planoId}/leer-recintos`, { method: 'POST' }),
 
   /** Una marca que cambia cuando alguien cambia algo del edificio; llega también con el plano. */
-  novedades: (edificio: string) => pedir<{ marca: string }>(`/edificios/${edificio}/novedades`),
+  novedades: (edificio: string) => pedir<Novedades>(`/edificios/${edificio}/novedades`),
 
   eliminados: (edificio: string) => {
     const parametros = new URLSearchParams({ edificio, solo_eliminados: 'true', limite: '1000' })

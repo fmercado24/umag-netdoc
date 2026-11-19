@@ -96,6 +96,11 @@ class Configuracion(BaseSettings):
     #: "en falla" (SOP-DSI-RED-001, sección 11.3).
     monitoreo_minutos_falla: int = 10
 
+    #: Minutos sin noticias de una herramienta de monitoreo tras los cuales el
+    #: visor advierte que el estado operativo puede no estar al día (el latido
+    #: del SOP 11.3). 0 desactiva el aviso.
+    monitoreo_latido_minutos: int = 15
+
     # --- Conector con Zabbix (app.scripts.sincronizar zabbix) --------------
     #: URL de la API, p. ej. https://zabbix.umag.cl/api_jsonrpc.php
     zabbix_url: str = ""

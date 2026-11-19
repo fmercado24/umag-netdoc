@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           629 pruebas (pytest)
+│   └── tests/           737 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -514,6 +514,7 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `GET` | `/api/v1/reportes/elementos-incompletos?edificio=` | Reporte exigido por SOP §10.5 punto 22 |
 | `POST` | `/api/v1/integraciones/monitoreo/estado` | Webhook de Zabbix (SOP §11.3) |
 | `POST` | `/api/v1/integraciones/alertmanager` | Webhook de Alertmanager (Prometheus) |
+| `POST` | `/api/v1/integraciones/monitoreo/latido` | Latido de una herramienta de monitoreo ([detalle](docs/integraciones.md#latido)) |
 | `GET` | `/api/v1/integraciones/prometheus/objetivos` | Descubrimiento de objetivos para Prometheus desde el inventario |
 | `GET` | `/metrics` | Métricas de inventario, estado y servicio en formato Prometheus |
 | `GET` | `/api/v1/integraciones/inventario` | Inventario `netdoc.inventario/v1` en JSON o CSV, completo o incremental |
@@ -543,6 +544,10 @@ de baja (SOP §8.5).
 **El monitoreo no pisa el mantenimiento planificado.** Un elemento marcado
 "en mantenimiento" ignora los eventos de Zabbix, y una caída solo escala a
 "en falla" tras `NETDOC_MONITOREO_MINUTOS_FALLA` minutos.
+Y como los avisos llegan solo cuando algo cambia, NetDoc vigila además el
+**latido** de cada herramienta: si Zabbix o Alertmanager callan más de
+`NETDOC_MONITOREO_LATIDO_MINUTOS`, el visor advierte que el estado puede no
+estar al día ([detalle](docs/integraciones.md#latido)).
 
 **Importación fiel, no optimista.** El importador del CADI deja vacío lo que la
 planilla no trae (serie, MAC, IP, fechas, coordenadas) y **reporta lo que no
@@ -563,7 +568,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 629 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 737 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

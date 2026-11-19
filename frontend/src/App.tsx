@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from './api/cliente'
 import { armarArbol } from './arbol'
+import { AvisoMonitoreo } from './components/AvisoMonitoreo'
 import { BarraSuperior } from './components/BarraSuperior'
 import { CargaDePlanos } from './components/CargaDePlanos'
 import { FormularioAlta } from './components/FormularioAlta'
@@ -22,6 +23,7 @@ import type {
   ElementoMapa,
   Enumeraciones,
   HistorialEntrada,
+  MonitoreoSinLatido,
   Piso,
   RespuestaMapa,
   TipoElemento,
@@ -81,6 +83,8 @@ export default function App({ usuario, onSalir }: Props) {
   const [cargandoPlanos, setCargandoPlanos] = useState(false)
   const [versionPisos, setVersionPisos] = useState(0)
   const [aviso, setAviso] = useState<string | null>(null)
+  // Herramientas de monitoreo que dejaron de informar (ver `api.novedades`).
+  const [sinLatido, setSinLatido] = useState<MonitoreoSinLatido[]>([])
   const [viendoEliminados, setViendoEliminados] = useState(false)
   /** Lo último que se eliminó, para poder deshacerlo. */
   const [eliminado, setEliminado] = useState<ElementoDetalle | null>(null)
@@ -200,8 +204,10 @@ export default function App({ usuario, onSalir }: Props) {
       if (document.hidden || Date.now() - ultimoUso > INACTIVIDAD_MS) return
       api
         .novedades(edificioSel)
-        .then(({ marca }) => {
-          if (!vigente || marcaVista.current === null || marca === marcaVista.current) return
+        .then(({ marca, monitoreo_sin_latido }) => {
+          if (!vigente) return
+          setSinLatido(monitoreo_sin_latido ?? [])
+          if (marcaVista.current === null || marca === marcaVista.current) return
           recargarMapa()
           revisarFicha()
         })
@@ -218,6 +224,7 @@ export default function App({ usuario, onSalir }: Props) {
       if (!document.hidden) revisar()
     }
 
+    revisar()
     const reloj = window.setInterval(revisar, PAUSA_NOVEDADES_MS)
     window.addEventListener('pointerdown', alUsar)
     window.addEventListener('keydown', alUsar)
@@ -556,6 +563,8 @@ export default function App({ usuario, onSalir }: Props) {
           </span>
         </div>
       )}
+
+      <AvisoMonitoreo fuentes={sinLatido} />
 
       {aviso && (
         <div className="franja-exito" role="status">

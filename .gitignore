@@ -40,3 +40,6 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Memoria de título: se trabaja aparte (Overleaf) y no se versiona con el sistema
+docs/Proyecto-de-titulo-Francisco-Mercado/

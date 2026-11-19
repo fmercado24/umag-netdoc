@@ -18,7 +18,7 @@ cargó siguiendo estos mismos pasos y sirve de ejemplo en todo el documento.
 |---|---|---|---|
 | 1 | Confirmar el código del edificio | Tabla de la sección 1 | `ING` existe en el catálogo |
 | 2 | Crear la carpeta del edificio | `cp -r data/_plantilla data/ing` | `data/ing/` con las plantillas |
-| 3 | Llenar las planillas en terreno | Excel o Google Sheets → CSV | `ing-p01-t1.csv`, `ing-puntos-de-datos.csv`… |
+| 3 | Llenar las planillas en terreno | [`plantilla-levantamiento.xlsx`](../data/_plantilla/plantilla-levantamiento.xlsx) → una hoja por CSV | `ing-p01-t1.csv`, `ing-puntos-de-datos.csv`… |
 | 4 | Preparar las láminas y leer sus recintos | `preparar_laminas ING --aplicar`, `extraer_recintos ING` | Láminas SVG horizontales y `ing-recintos.csv` con los códigos de sala |
 | 5 | Ensayar la importación | `importar_edificio ING --solo-advertencias` | Informe sin discrepancias graves |
 | 6 | Importar | `importar_edificio ING` (o `./iniciar.sh`) | "Importación completada" |
@@ -114,52 +114,74 @@ divide en tramos, omítalo (`ing-p01.csv`).
 
 ## 3. Planillas del levantamiento
 
-Se llenan en Excel o Google Sheets y se guardan como CSV:
+**Orden recomendado: primero los planos, después la planilla.** Cargue las láminas del
+edificio (sección 4, o **Cargar planos** en el visor) antes de importar: el sistema lee sus
+salas con OCR, y así la importación busca la sala de cada fila entre las del plano y deja
+cada elemento en ella. Lo que no encuentra queda **sin ubicar**, se lista en el informe y
+se ubica a mano en el visor (sección 8).
 
-- **Excel:** *Archivo → Guardar como → CSV UTF-8 (delimitado por comas)*.
-- **Google Sheets:** *Archivo → Descargar → Valores separados por comas (.csv)*.
+Se llenan en Excel, con [`data/_plantilla/plantilla-levantamiento.xlsx`](../data/_plantilla/plantilla-levantamiento.xlsx):
+una hoja por archivo, con listas desplegables para *Tipo*, *Estado Operativo* y *Estado
+Condición*, y las columnas de códigos como texto, para que Excel no borre los ceros de
+`09` ni de `0045123`. La hoja *Instrucciones* trae una fila de ejemplo de cada planilla.
+Copie la hoja `codigo-p01-t1` una vez por piso y tramo y póngale el nombre del archivo
+(`ing-p01-t1`, `ing-p02`, `ing-p00`): el piso y el tramo salen del nombre. Luego guarde
+**cada hoja** como CSV con ese nombre:
+
+- **Excel:** *Archivo → Guardar como → CSV UTF-8*. Excel guarda solo la hoja activa:
+  repítalo por hoja.
+- **Google Sheets:** *Archivo → Descargar → Valores separados por comas (.csv)*, por hoja.
 
 NetDoc acepta también el CSV separado por punto y coma que genera Excel con la
 configuración regional de Chile, y el CSV "normal" (Windows-1252); en ese caso
 avisa que conviene guardarlo como **CSV UTF-8** para no arriesgar tildes y eñes.
 
+**Errores de tipeo.** Las columnas se reconocen por su nombre, en cualquier orden y aunque
+falte una tilde o una letra (`Ubicacion`, `Etiquta`). Los valores también: `Swich`,
+`Acces Point`, `Operatibo`, `Fuera de serbicio`, `Exelente`, `Rak 4` o `R04` se leen como
+lo que quisieron decir, y una sala mal escrita (`Coleccion Juridca`) se encuentra igual.
+Cada corrección se informa, para arreglarla en la planilla de origen (SOP §10.6). Además, todo texto se guarda limpio: sin espacios al comienzo ni al final, uno solo entre palabras y sin los caracteres invisibles que deja copiar desde Excel o una página web. Lo mismo vale para lo que se escribe en el visor: los números de la ficha aceptan `12,5` o `1500 VA`, los sí/no aceptan `sí` y `no`, y las opciones se reconocen sin importar mayúsculas ni tildes. Lo que no
+se reconoce **no se inventa**: un tipo desconocido deja la fila fuera, y un estado o una
+condición que no se entienden se informan (el estado queda *activo*; la condición, vacía).
+
 ### 3.1 Equipamiento: `ing-p<piso>-t<tramo>.csv`
 
-Una fila por equipo o rack del piso–tramo. Las primeras nueve columnas son las
-de las planillas del CADI y van en este orden; las tres últimas son opcionales.
+Una fila por equipo o rack del piso–tramo. Las columnas pueden ir en cualquier orden.
 
-| Columna | Qué va | Ejemplo | Reglas |
-|---|---|---|---|
-| **Elemento** | Marca y modelo | `Cisco CBS350-24P` | La marca se reconoce sola si es una de: Cisco, Dell, D-Link, Grandstream, HP, Huawei, Linksys, MikroTik, Tripp Lite, Ubiquiti (UniFi/EdgeSwitch)… |
-| **Etiqueta** | Rótulo físico del equipo | `SW-DATOS`, `RACK-01` | En patch panels, la cantidad de puertos: `24 Puntos` |
-| **Tipo** | Tipo de elemento | `Switches` | Ver la tabla de tipos. Mayúsculas y tildes dan igual |
-| **Ubicación** | Recinto donde está | `Sala de Comunicaciones 1101` | Texto libre, con el **número de sala** tal como está en el plano: con él el equipo se ubica solo (sección 4) |
-| **Estado Operativo** | Estado del equipo | `Operativo / Activo / En línea (Online)` | Si contiene "fuera de servicio" queda *inactivo*; si no, *activo* |
-| **Estado Condición** | Estado físico | `Excelente / Bueno (Óptimo)` | Debe empezar por `Excelente`, `Regular` o `Malo` |
-| **Notas** | Observaciones | `Enlace: F.O. a Rack-01 DSI` | Ver "Notas con significado" |
-| **Rack** | Rack donde está montado | `Rack-01` | Vacío si no está en un rack. En la fila del propio rack, su número |
-| **Foto** | — | | Se ignora: las fotos van en `fotos/` (sección 5) |
-| IP *(opcional)* | IP de gestión | `10.40.0.2` | Necesaria para el monitoreo |
-| MAC *(opcional)* | MAC | `AA:BB:CC:DD:EE:FF` | Se normaliza a mayúsculas con `:` |
-| N° de serie *(opcional)* | Serie del fabricante | `FOC2345Y0AB` | |
-| N° de inventario UMAG *(opcional)* | Etiqueta de activo fijo de la universidad | `00000000000000` | Solo cifras; se conservan los ceros iniciales |
+| Columna | Obligatoria | Qué va | Ejemplo | Reglas |
+|---|---|---|---|---|
+| **Elemento** | Sí | Marca y modelo | `Cisco CBS350-24P` | La marca se reconoce sola si es una de: Cisco, Dell, D-Link, Grandstream, HP, Huawei, Linksys, MikroTik, Tripp Lite, Ubiquiti (UniFi/EdgeSwitch)… |
+| **Etiqueta** | No | Rótulo físico del equipo | `SW-DATOS`, `RACK-01` | En patch panels, la cantidad de puertos: `24 Puntos` |
+| **Tipo** | Sí | Tipo de elemento | `Switch` | Ver la tabla de tipos |
+| **Sala del plano** | Sí | Código o nombre de la sala, como en el plano | `1101`, `09`, `Colección Jurídica` | Con ella el equipo se ubica solo. Un nombre que tienen varias salas (`Oficina administrativa`) no se elige: escriba el código. Se acepta también `Oficina administrativa 09` |
+| **Ubicación** | No | Detalle dentro de la sala | `Sobre la puerta` | Texto libre. En planillas sin *Sala del plano*, como las del CADI, la sala va aquí con su número: `Sala de Comunicaciones 1101` |
+| **Estado Operativo** | Sí | Estado del equipo | `Operativo` | `Operativo`, `Fuera de servicio`, `En falla` o `En mantenimiento` (también `Activo`, `Inactivo`, `Apagado`, `En mantención`…). Vacío: *activo* |
+| **Estado Condición** | Sí | Estado físico | `Excelente` | `Excelente` (o `Bueno`), `Regular`, `Malo` u `Obsoleto` |
+| **Rack** | No | Rack donde está montado | `Rack-01` | También `R01`, `RACK 1`, `Rack N° 1`. Vacío si no está en un rack. En la fila del propio rack, su número |
+| **Notas** | No | Observaciones | `Enlace: F.O. a Rack-01 DSI` | Ver "Notas con significado" |
+| IP | No | IP de gestión | `10.40.0.2` | Necesaria para el monitoreo. Se quitan espacios y ceros a la izquierda (`010.040.000.002` → `10.40.0.2`). **Confidencial** |
+| MAC | No | MAC | `AA:BB:CC:DD:EE:FF` | Con `:`, `-`, puntos (`aabb.ccdd.eeff`) o sin separadores; se guarda en mayúsculas con `:`. **Confidencial** |
+| N° de serie | No | Serie del fabricante | `FOC2345Y0AB` | Se guarda en mayúsculas y sin espacios |
+| N° de inventario UMAG | No | Etiqueta de activo fijo de la universidad | `0045123` | Solo cifras; se conservan los ceros iniciales y se quitan espacios, puntos y guiones (`0045 123` → `0045123`). Si Excel lo muestra como `3,96E+13`, perdió cifras: dé formato de texto a la columna y vuelva a escribirlo |
 
-Las columnas opcionales se reconocen por su encabezado (`IP`, `IP de gestión`,
-`MAC`, `N° de serie`, `Número de serie`, `Serie`, `N° de inventario UMAG`,
-`Número de inventario`, `Inventario`), así que pueden agregarse a una planilla
-existente. Una IP, una MAC o un N° de inventario mal escrito se informa y se
-omite; el resto del equipo se importa igual.
+Una columna *Foto* se acepta y se ignora: las fotos van en `fotos/` (sección 5). Las
+columnas opcionales se reconocen por su encabezado (`IP`, `IP de gestión`, `MAC`,
+`N° de serie`, `Número de serie`, `Serie`, `N° de inventario UMAG`, `Número de
+inventario`, `Inventario`), así que pueden agregarse a una planilla existente. Una IP, una
+MAC o un N° de inventario mal escrito se informa y se omite; el resto del equipo se importa
+igual. **No suba al repositorio planillas con datos confidenciales**: cópielas directo al
+servidor (sección 7).
 
 **Tipos aceptados:**
 
 | Tipo en la planilla | Código |
 |---|---|
-| `Switch` / `Switches` | SW |
+| `Switch` / `Switches` / `SW` | SW |
 | `Router` / `Routers` | RT |
-| `Access Point` / `Access Points` | AP |
+| `Access Point` / `Access Points` / `Punto de acceso` | AP |
 | `Patch Panel` / `Patch Panels` | PP |
 | `Cabecera F.O.` / `ODF` / `Distribuidor de fibra` | ODF |
-| `Rack` / `Racks` | R |
+| `Rack` / `Racks` / `Gabinete` | R |
 | `UPS` | UPS |
 | `PDU` / `PDUs` | PDU |
 | `Servidor` / `Servidores` | SV |
@@ -192,13 +214,17 @@ las planillas y **nunca se reutiliza**. El de un rack es su número:
 
 Un punto de datos por fila; todos los del edificio en un solo archivo.
 
-| Columna | Qué va | Ejemplo |
-|---|---|---|
-| **Elemento** | Recinto, con o sin "Roseta", y su número de sala | `Roseta Laboratorio 1105` → recinto *Laboratorio 1105* |
-| **Etiqueta** | Rótulo físico | `P01-T1-R1-D01` |
-| **Tipo** | `Punto de datos` | |
-| **Ubicación** | Piso y tramo | `Piso 1 - Tramo 1`, `Piso 1` sin tramos, o `Piso Subterráneo` |
-| **Estado Operativo**, **Estado Condición**, **Notas** | Igual que en equipamiento | |
+| Columna | Obligatoria | Qué va | Ejemplo |
+|---|---|---|---|
+| **Elemento** | Sí | `Roseta` y el nombre de la sala | `Roseta Laboratorio` |
+| **Etiqueta** | Sí | Rótulo físico | `P01-T1-R1-D01` |
+| **Tipo** | Sí | `Punto de datos` (vacío también vale) | |
+| **Sala del plano** | Sí | Código o nombre de la sala, como en el plano | `1105`, `09`, `Idiomas` |
+| **Piso y tramo** | Sí | Piso y tramo | `Piso 1 - Tramo 1`, `P01-T1`, `Piso 2` o `Subterráneo`. Si falta, se toma del rótulo |
+| **Estado Operativo**, **Estado Condición**, **Notas** | Igual que en equipamiento | | |
+
+Las planillas del CADI llaman a la columna del piso *Ubicación (Hacia dónde va el cable)*
+y ponen la sala con su número en *Elemento* (`Roseta Laboratorio 1105`); también se leen.
 
 El **rótulo** es `P<piso>-T<tramo>-R<rack>-<puerto>` (sin tramo:
 `P01-R1-D01`; en el subterráneo, `SUB-R11-D05`). La primera letra del puerto indica el servicio: `D` datos,
@@ -456,7 +482,12 @@ informe y corrija las planillas hasta quedar conforme. Mensajes frecuentes:
 ```
 
 Si el edificio ya tiene elementos, el comando se detiene sin tocar nada (ver
-sección 11 para sumar tramos después). Luego cargue planos y fotos:
+sección 11 para sumar tramos después). **En el servidor**, copie los CSV con `sudo` a
+`/opt/netdoc/data/ing/` y ejecute `sudo netdoc importar`: importa los edificios que aún no
+tienen elementos, ubica cada elemento en su sala y reinicia el servicio. La próxima
+actualización borra esa carpeta, porque no está en el repositorio, pero ya no hace falta:
+lo importado queda en la base. Si los CSV no traen datos confidenciales, también pueden
+subirse al repositorio, en `data/ing/`, y se importan al actualizar. Luego cargue planos y fotos:
 
 ```bash
 .venv/bin/python -m app.scripts.cargar_planos ING

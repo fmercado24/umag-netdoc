@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import ipaddress
 import io
 import re
 from collections import defaultdict
@@ -82,14 +83,35 @@ from app.servicios.levantamientos import (
     leer_levantamientos,
     ruta_levantamientos,
 )
+from app.servicios.planillas import (
+    COLUMNAS_EQUIPO,
+    COLUMNAS_PUNTOS,
+    MAPA_TIPOS,
+    POSICIONES_EQUIPO,
+    POSICIONES_PUNTOS,
+    Columnas,
+    columnas_de,
+    leer_condicion,
+    leer_estado,
+    leer_tipo,
+    numero_de_rack,
+    piso_y_tramo,
+)
 from app.servicios.recintos import (
+    buscar_sala,
+    describir_varias,
+    RE_CODIGO_EN_TEXTO,
+    es_rotulo_de_rack,
     lineas_informe,
+    normalizar_codigo,
+    numera_por_piso,
     numero_de_recinto,
     numeros_en,
     prefijo_de_piso,
+    recintos_del_piso,
     sincronizar_y_ubicar,
 )
-from app.servicios.validacion import NORMALIZAR
+from app.servicios.validacion import NORMALIZAR, limpiar_texto
 
 DIR_DATA = DIR_PROYECTO / "data"
 
@@ -132,41 +154,7 @@ EQ_ESTADO_OP, EQ_ESTADO_COND, EQ_NOTAS, EQ_RACK = 4, 5, 6, 7
 PD_ROSETA, PD_ETIQUETA, PD_TIPO, PD_UBICACION = 0, 1, 2, 3
 PD_ESTADO_OP, PD_ESTADO_COND, PD_NOTAS = 4, 5, 6
 
-#: "Tipo" de la planilla → código del catálogo.
-MAPA_TIPOS: dict[str, str] = {
-    "patch panel": "PP",
-    "patch panels": "PP",
-    "access point": "AP",
-    "access points": "AP",
-    "cabecera f.o": "ODF",
-    "central telefonica": "PBX",
-    "rack": "R",
-    "racks": "R",
-    "router": "RT",
-    "routers": "RT",
-    "servidor": "SV",
-    "servidores": "SV",
-    "switch": "SW",
-    "switches": "SW",
-    "ups": "UPS",
-    "puntos de datos (rosetas)": "PD",
-    "punto de datos": "PD",
-    "puntos de datos": "PD",
-    # Sinónimos y los tipos que las planillas del CADI no usaron.
-    "cabecera fo": "ODF",
-    "cabeceras f.o": "ODF",
-    "odf": "ODF",
-    "distribuidor de fibra": "ODF",
-    "pbx": "PBX",
-    "media converter": "MC",
-    "media converters": "MC",
-    "conversor de medios": "MC",
-    "convertidor de medios": "MC",
-    "ont": "ONT",
-    "onts": "ONT",
-    "pdu": "PDU",
-    "pdus": "PDU",
-}
+# MAPA_TIPOS (tipo de la planilla → código del catálogo) está en app.servicios.planillas.
 
 MARCAS: dict[str, str] = {
     "mikrotik": "MikroTik",
@@ -185,12 +173,6 @@ MARCAS: dict[str, str] = {
     "connection trimmerx": "Connection TrimmerX",
 }
 
-#: "Piso 1 - Tramo 2", o solo "Piso 1" en los edificios sin tramos.
-RE_PISO_TRAMO = re.compile(r"piso\s*(\d+)(?:\s*-\s*tramo\s*(\d+))?", re.IGNORECASE)
-#: "Piso Subterráneo" (o "Subterráneo - Tramo 1"): el piso P00.
-RE_SUBTERRANEO = re.compile(r"subterr[aá]neo|s[oó]tano", re.IGNORECASE)
-RE_TRAMO = re.compile(r"tramo\s*(\d+)", re.IGNORECASE)
-RE_RACK = re.compile(r"rack\s*-?\s*(\d+)", re.IGNORECASE)
 RE_PUNTOS = re.compile(r"(\d+)\s*puntos?", re.IGNORECASE)
 RE_DISPONIBILIDAD = re.compile(r"disponibilidad\s*(\d+)\s*puntos?", re.IGNORECASE)
 
@@ -228,7 +210,7 @@ def _leer_csv(ruta: Path) -> list[dict[str, str]]:
         return []
     texto, separador, _ = texto_csv(ruta)
     filas = [
-        {k.strip().lower(): (v or "").strip() for k, v in fila.items() if isinstance(k, str)}
+        {(limpiar_texto(k) or "").lower(): limpiar_texto(v) or "" for k, v in fila.items() if isinstance(k, str)}
         for fila in csv.DictReader(io.StringIO(texto, newline=""), delimiter=separador)
     ]
     return [fila for fila in filas if any(fila.values())]
@@ -263,20 +245,6 @@ def columnas_opcionales(encabezado: list[str]) -> dict[str, int]:
 
 def _ubicacion(piso: str, tramo: str | None) -> str:
     return f"{piso}-{tramo}" if tramo else piso
-
-
-def piso_y_tramo(texto: str) -> tuple[str, str | None] | None:
-    """'Piso 1 - Tramo 2' → ('P01', 'T2'); 'Piso Subterráneo' → ('P00', None).
-
-    None si el texto no dice el piso.
-    """
-    if coincidencia := RE_PISO_TRAMO.search(texto):
-        tramo = coincidencia.group(2)
-        return f"P{int(coincidencia.group(1)):02d}", f"T{int(tramo)}" if tramo else None
-    if RE_SUBTERRANEO.search(texto):
-        tramo = RE_TRAMO.search(texto)
-        return "P00", f"T{int(tramo.group(1))}" if tramo else None
-    return None
 
 
 def _codigo_piso(valor: str) -> str:
@@ -364,27 +332,17 @@ def _sin_tildes(texto: str) -> str:
 
 
 def normalizar_tipo(valor: str) -> str | None:
-    clave = _sin_tildes(valor.strip().lower()).rstrip(":. ")
-    return MAPA_TIPOS.get(clave)
+    """Código del catálogo del «Tipo» de la planilla, aunque esté mal escrito."""
+    return leer_tipo(valor).valor
 
 
 def normalizar_estado(valor: str) -> EstadoOperativo:
-    return (
-        EstadoOperativo.INACTIVO
-        if "fuera de servicio" in valor.lower()
-        else EstadoOperativo.ACTIVO
-    )
+    lectura = leer_estado(valor)
+    return lectura.valor if lectura.reconocido else EstadoOperativo.ACTIVO
 
 
 def normalizar_condicion(valor: str) -> EstadoCondicion | None:
-    texto = valor.strip().lower()
-    if texto.startswith("excelente"):
-        return EstadoCondicion.EXCELENTE
-    if texto.startswith("regular"):
-        return EstadoCondicion.REGULAR
-    if texto.startswith("malo"):
-        return EstadoCondicion.MALO
-    return None
+    return leer_condicion(valor).valor
 
 
 def separar_marca_modelo(valor: str) -> tuple[str | None, str | None]:
@@ -437,6 +395,44 @@ def interpretar_notas(notas: str) -> tuple[str | None, str | None]:
 def _observacion_rack_ajeno(observacion: str | None, etiqueta_rack: str, codigo_rack: str) -> str:
     nota = f"La planilla lo asocia al {etiqueta_rack} ({codigo_rack}), que está en otro piso."
     return f"{observacion} {nota}" if observacion else nota
+
+
+#: Servicios de una VLAN: fijan la VLAN por omisión de los puntos de datos.
+SERVICIOS_VLAN = ("datos", "telefonia", "cctv")
+
+
+def normalizar_prefijo(texto: str) -> str:
+    """«/16», «16» o la máscara «255.255.0.0» → «/16»; vacío si no se entiende."""
+    texto = re.sub(r"\s+", "", texto or "")
+    if re.fullmatch(r"/?\d{1,3}", texto):
+        return "/" + texto.lstrip("/")
+    try:
+        return f"/{ipaddress.IPv4Network(f'0.0.0.0/{texto}').prefixlen}"
+    except ValueError:
+        return ""
+
+
+def codigo_en_texto(texto: str) -> str | None:
+    """El código de sala que trae un texto: todo él («09», «1083») o el último que
+    contenga («Oficina administrativa 09» → «09»)."""
+    if codigo := normalizar_codigo(texto):
+        return codigo
+    hallados = RE_CODIGO_EN_TEXTO.findall(texto or "")
+    return normalizar_codigo(hallados[-1]) if hallados else None
+
+
+def componer_ubicacion(sala: str, detalle: str) -> str | None:
+    """La ubicación descriptiva con la sala del plano y el detalle de la planilla:
+    «Sala de Comunicaciones» y «1101» → «Sala de Comunicaciones 1101»;
+    «Colección Jurídica» y «Sobre la puerta» → «Colección Jurídica, Sobre la puerta»."""
+    sala, detalle = (sala or "").strip(), (detalle or "").strip()
+    if not sala or not detalle:
+        return sala or detalle or None
+    if _sin_tildes(sala.lower()) in _sin_tildes(detalle.lower()):
+        return detalle
+    if normalizar_codigo(sala):
+        return f"{detalle} {sala}"
+    return f"{sala}, {detalle}"
 
 
 def nombre_recinto(roseta: str) -> str:
@@ -516,6 +512,10 @@ class Importador:
             )
         prefijo = codigo_edificio.lower()
         self.prefijo = prefijo
+        self._corregidos: set[tuple[str, str, str]] = set()
+        self._recintos_por_piso: dict[int, list] = {}
+        self._pisos_sin_salas: set[str] = set()
+        self.columnas = Columnas(indices=dict(POSICIONES_EQUIPO))
         self.archivo_puntos = f"{prefijo}-puntos-de-datos.csv"
         self.archivo_vlans = f"{prefijo}-vlans.csv"
         self.archivo_global = f"{prefijo}-global.csv"
@@ -570,6 +570,103 @@ class Importador:
                     self.codigos_usados.add(entrada.valor_anterior)
 
     # -- utilidades ------------------------------------------------------
+    # -- Lectura tolerante de las planillas -------------------------------
+    def _corregido(self, archivo: str, columna: str, original: str, como: str) -> None:
+        """Informa una vez por planilla un valor mal escrito que se reconoció."""
+        clave = (archivo, columna, original.strip().lower())
+        if clave in self._corregidos:
+            return
+        self._corregidos.add(clave)
+        self.resultado.advertencias.append(
+            f"{archivo}: «{original.strip()}» en la columna {columna} se leyó como «{como}»; "
+            "corríjalo en la planilla de origen"
+        )
+
+    def _columnas(self, archivo: str, campos: dict, posiciones: dict) -> Columnas:
+        columnas = columnas_de(self.encabezado, campos, posiciones)
+        for original, como in columnas.corregidas:
+            self.resultado.advertencias.append(f"{archivo}: la columna «{original}» se leyó como «{como}»")
+        for nombre in columnas.desconocidas:
+            self.resultado.advertencias.append(
+                f"{archivo}: la columna «{nombre}» no se reconoce; no se importó"
+            )
+        return columnas
+
+    def _tipo(self, texto: str, archivo: str) -> str | None:
+        lectura = leer_tipo(texto)
+        if lectura.corregido:
+            self._corregido(archivo, "Tipo", texto, lectura.corregido)
+        return lectura.valor
+
+    def _estado(self, texto: str, archivo: str, referencia: str) -> EstadoOperativo:
+        lectura = leer_estado(texto)
+        if not lectura.reconocido:
+            self.resultado.advertencias.append(
+                f"{archivo}: estado operativo «{texto}» no reconocido en {referencia}; "
+                "se registró como activo"
+            )
+            return EstadoOperativo.ACTIVO
+        if lectura.corregido:
+            self._corregido(archivo, "Estado Operativo", texto, lectura.corregido)
+        return lectura.valor
+
+    def _condicion(self, texto: str, archivo: str, referencia: str) -> EstadoCondicion | None:
+        lectura = leer_condicion(texto)
+        if not lectura.reconocido:
+            self.resultado.advertencias.append(
+                f"{archivo}: estado de condición «{texto}» no reconocido en {referencia}; "
+                "quedó vacío"
+            )
+            return None
+        if lectura.corregido:
+            self._corregido(archivo, "Estado Condición", texto, lectura.corregido)
+        return lectura.valor
+
+    def _recintos(self, piso: Piso) -> list:
+        if piso.id not in self._recintos_por_piso:
+            self._recintos_por_piso[piso.id] = recintos_del_piso(piso)
+        return self._recintos_por_piso[piso.id]
+
+    def _recinto(self, sala: str, ubicacion: str, piso: Piso, contexto: str) -> str | None:
+        """El N° de recinto del elemento: el de la columna «Sala del plano» si la
+        trae, buscado como en el visor (por su código o su nombre, aunque esté
+        mal escrito); si no, el que traiga la ubicación.
+
+        Lo que no se encuentra en las láminas queda sin ubicar y se informa: se
+        ubica a mano en el visor. Si el piso aún no tiene láminas, se guarda el
+        código escrito, y la ubicación por recinto se hace al cargarlas.
+        """
+        recintos = self._recintos(piso)
+        if sala:
+            if not recintos:
+                if piso.codigo not in self._pisos_sin_salas:
+                    self._pisos_sin_salas.add(piso.codigo)
+                    self.resultado.advertencias.append(
+                        f"El piso {piso.codigo} aún no tiene láminas con sus salas leídas: se guardó "
+                        "el código de sala que trae cada fila, y lo que la planilla nombra sin código "
+                        "se ubica a mano. Conviene cargar primero los planos y después importar"
+                    )
+                return codigo_en_texto(sala)
+            busqueda = buscar_sala(sala, piso.codigo, recintos)
+            if busqueda.sala:
+                return busqueda.sala.numero
+            if busqueda.varias:
+                self.resultado.advertencias.append(
+                    f"{contexto}: «{sala}» es el nombre de {len(busqueda.varias)} salas del piso "
+                    f"{piso.codigo} ({describir_varias(busqueda.varias)}): escriba su código; "
+                    "quedó sin ubicar"
+                )
+                return None
+            self.resultado.advertencias.append(
+                f"{contexto}: la sala «{sala}» no está entre las leídas de las láminas del piso "
+                f"{piso.codigo}; quedó sin ubicar y se ubica a mano en el visor"
+            )
+            return normalizar_codigo(sala)
+        conocidos = sorted({r.numero for r in recintos if not es_rotulo_de_rack(r.numero)})
+        if conocidos and not numera_por_piso(conocidos, piso.codigo):
+            return numero_de_recinto(ubicacion, piso.codigo, conocidos)
+        return self._numero_recinto(ubicacion, piso.codigo, contexto)
+
     def _leer(self, nombre: str) -> list[list[str]]:
         ruta = self.dir_datos / nombre
         if not ruta.exists():
@@ -578,9 +675,12 @@ class Importador:
         texto, separador, aviso = texto_csv(ruta)
         if aviso:
             self.resultado.advertencias.append(aviso)
-        filas = list(csv.reader(io.StringIO(texto, newline=""), delimiter=separador))
+        filas = [
+            [limpiar_texto(c) or "" for c in fila]
+            for fila in csv.reader(io.StringIO(texto, newline=""), delimiter=separador)
+        ]
         self.encabezado = filas[0] if filas else []
-        return [f for f in filas[1:] if any(c.strip() for c in f)]
+        return [f for f in filas[1:] if any(f)]
 
     def _siguiente_correlativo(self, codigo_tipo: str, piso: Piso) -> int:
         clave = (codigo_tipo, piso.id)
@@ -663,14 +763,16 @@ class Importador:
         tramo de su planilla con el código que corresponde, y lo montado desde
         otro piso se desmonta después (``revisar_montajes``).
         """
-        _, observacion = interpretar_notas(campo(EQ_NOTAS))
+        _, observacion = interpretar_notas(campo("notas"))
+        referencia = campo("etiqueta") or rack.codigo
         cambios: dict = {
-            "etiqueta": campo(EQ_ETIQUETA) or rack.etiqueta,
-            "ubicacion_descriptiva": campo(EQ_UBICACION) or rack.ubicacion_descriptiva,
-            "numero_recinto": self._numero_recinto(campo(EQ_UBICACION), piso.codigo, archivo),
-            "estado_operativo": normalizar_estado(campo(EQ_ESTADO_OP)),
-            "estado_condicion": normalizar_condicion(campo(EQ_ESTADO_COND)),
-            "observaciones": observacion or campo(EQ_MODELO) or None,
+            "etiqueta": campo("etiqueta") or rack.etiqueta,
+            "ubicacion_descriptiva": componer_ubicacion(campo("sala"), campo("ubicacion"))
+            or rack.ubicacion_descriptiva,
+            "numero_recinto": self._recinto(campo("sala"), campo("ubicacion"), piso, archivo),
+            "estado_operativo": self._estado(campo("estado_operativo"), archivo, referencia),
+            "estado_condicion": self._condicion(campo("estado_condicion"), archivo, referencia),
+            "observaciones": observacion or campo("modelo") or None,
             "atributos": {**(rack.atributos or {}), "tipo_rack": "cerrado"},
         }
         codigo_anterior = rack.codigo
@@ -747,15 +849,22 @@ class Importador:
         servicio. El servicio (datos, telefonia, cctv) fija la VLAN por
         omisión de los puntos de datos cuyo rótulo lo indica."""
         for numero_fila, fila in enumerate(_leer_csv(self.dir_datos / self.archivo_vlans), 2):
-            try:
-                numero = int(fila.get("numero", ""))
-            except ValueError:
+            # «3», «VLAN 3» o «3.0» si Excel lo tomó como decimal.
+            cifras = re.match(r"\D*(\d+)", fila.get("numero", ""))
+            if cifras is None:
                 self.resultado.advertencias.append(
                     f"{self.archivo_vlans} fila {numero_fila}: número de VLAN ilegible "
                     f"'{fila.get('numero', '')}'"
                 )
                 continue
-            servicio = fila.get("servicio", "").lower()
+            numero = int(cifras.group(1))
+            servicio = _sin_tildes(fila.get("servicio", "").lower())
+            if servicio and servicio not in SERVICIOS_VLAN:
+                self.resultado.advertencias.append(
+                    f"{self.archivo_vlans} fila {numero_fila}: servicio «{fila.get('servicio')}» "
+                    f"desconocido (use {', '.join(SERVICIOS_VLAN)}); la VLAN no queda por omisión"
+                )
+                servicio = ""
             if servicio:
                 self.vlan_por_servicio[servicio] = numero
             existe = self.sesion.scalar(
@@ -764,7 +873,15 @@ class Importador:
             if existe:
                 continue
             gateway = fila.get("gateway") or None
-            prefijo = fila.get("prefijo", "")
+            if gateway:
+                try:
+                    gateway = NORMALIZAR["direccion_ip"](gateway)
+                except ValueError as exc:
+                    self.resultado.advertencias.append(
+                        f"{self.archivo_vlans} fila {numero_fila}: gateway «{gateway}»: {exc}; se omitió"
+                    )
+                    gateway = None
+            prefijo = normalizar_prefijo(fila.get("prefijo", ""))
             self.sesion.add(
                 Vlan(
                     numero=numero,
@@ -798,6 +915,7 @@ class Importador:
                 )
                 continue
             opcionales = columnas_opcionales(self.encabezado)
+            self.columnas = self._columnas(nombre, COLUMNAS_EQUIPO, POSICIONES_EQUIPO)
             for solo_racks in (True, False):
                 for fila in filas:
                     self._fila_equipo(fila, codigo_piso, codigo_tramo, nombre, solo_racks, opcionales)
@@ -811,14 +929,18 @@ class Importador:
         solo_racks: bool,
         opcionales: dict[str, int] | None = None,
     ) -> None:
-        def campo(indice: int) -> str:
-            return fila[indice].strip() if len(fila) > indice else ""
+        indices = self.columnas.indices
 
-        codigo_tipo = normalizar_tipo(campo(EQ_TIPO))
+        def campo(nombre: str) -> str:
+            indice = indices.get(nombre)
+            return fila[indice].strip() if indice is not None and len(fila) > indice else ""
+
+        codigo_tipo = self._tipo(campo("tipo"), archivo)
         if codigo_tipo is None:
-            if campo(EQ_TIPO):
+            if campo("tipo") and not solo_racks:
                 self.resultado.advertencias.append(
-                    f"{archivo}: tipo no reconocido '{campo(EQ_TIPO)}'"
+                    f"{archivo}: tipo no reconocido «{campo('tipo')}» en "
+                    f"{campo('etiqueta') or campo('modelo') or 'una fila'}; la fila no se importó"
                 )
             return
         if (codigo_tipo == "R") != solo_racks:
@@ -826,21 +948,20 @@ class Importador:
 
         piso = self.territorio.piso(codigo_piso)
         tramo = self.territorio.tramo(codigo_piso, codigo_tramo)
-        etiqueta_rack = campo(EQ_RACK)
-        numero_rack = None
-        if etiqueta_rack:
-            coincidencia = RE_RACK.search(etiqueta_rack)
-            if coincidencia:
-                numero_rack = int(coincidencia.group(1))
+        etiqueta_rack = campo("rack")
+        numero_rack = numero_de_rack(etiqueta_rack)
+        if codigo_tipo == "R" and numero_rack is None:
+            # El número del rack también puede venir en su etiqueta: «RACK-03».
+            numero_rack = numero_de_rack(campo("etiqueta"))
 
-        marca, modelo = separar_marca_modelo(campo(EQ_MODELO))
-        enlace, observacion = interpretar_notas(campo(EQ_NOTAS))
+        marca, modelo = separar_marca_modelo(campo("modelo"))
+        enlace, observacion = interpretar_notas(campo("notas"))
         atributos: dict = {}
 
         if codigo_tipo == "R":
             if numero_rack is None:
                 self.resultado.advertencias.append(
-                    f"{archivo}: rack sin número identificable ('{campo(EQ_MODELO)}')"
+                    f"{archivo}: rack sin número identificable ('{campo('modelo')}')"
                 )
                 return
             if numero_rack in self.racks:
@@ -861,7 +982,7 @@ class Importador:
         else:
             correlativo = self._siguiente_correlativo(codigo_tipo, piso)
             if codigo_tipo == "PP":
-                atributos = ficha_patch_panel(campo(EQ_ETIQUETA), campo(EQ_MODELO), campo(EQ_NOTAS))
+                atributos = ficha_patch_panel(campo("etiqueta"), campo("modelo"), campo("notas"))
                 marca, modelo = None, None
 
         codigo = self._codigo_unico(
@@ -882,8 +1003,8 @@ class Importador:
                 # Un equipo no se monta en el rack de otro piso: se ubica por
                 # su cuenta y la planilla queda como observación.
                 self.resultado.advertencias.append(
-                    f"{archivo}: {campo(EQ_ETIQUETA) or campo(EQ_MODELO)} "
-                    f"({campo(EQ_UBICACION) or 'sin ubicación'}) declara el {etiqueta_rack}, "
+                    f"{archivo}: {campo('etiqueta') or campo('modelo')} "
+                    f"({campo('ubicacion') or 'sin ubicación'}) declara el {etiqueta_rack}, "
                     f"que está en otro piso ({padre.codigo}); no se montó en él"
                 )
                 observacion = _observacion_rack_ajeno(observacion, etiqueta_rack, padre.codigo)
@@ -896,16 +1017,18 @@ class Importador:
             piso_id=piso.id,
             tramo_id=tramo.id if tramo else None,
             padre_id=padre.id if padre else None,
-            etiqueta=campo(EQ_ETIQUETA) or None,
-            ubicacion_descriptiva=campo(EQ_UBICACION) or None,
-            numero_recinto=self._numero_recinto(campo(EQ_UBICACION), piso.codigo, archivo),
-            estado_operativo=normalizar_estado(campo(EQ_ESTADO_OP)),
-            estado_condicion=normalizar_condicion(campo(EQ_ESTADO_COND)),
+            etiqueta=campo("etiqueta") or None,
+            ubicacion_descriptiva=componer_ubicacion(campo("sala"), campo("ubicacion")),
+            numero_recinto=self._recinto(campo("sala"), campo("ubicacion"), piso, archivo),
+            estado_operativo=self._estado(campo("estado_operativo"), archivo, campo("etiqueta") or codigo),
+            estado_condicion=self._condicion(
+                campo("estado_condicion"), archivo, campo("etiqueta") or codigo
+            ),
             marca=marca,
             modelo=modelo,
             observaciones=observacion,
             atributos=atributos,
-            **self._datos_opcionales(fila, opcionales or {}, archivo, campo(EQ_ETIQUETA) or codigo),
+            **self._datos_opcionales(fila, opcionales or {}, archivo, campo("etiqueta") or codigo),
         )
         self.resultado.equipos += 1
 
@@ -935,35 +1058,46 @@ class Importador:
 
         sin_etiqueta: dict[tuple[str, str], int] = defaultdict(int)
         prefijos_desconocidos: set[str] = set()
+        archivo = self.archivo_puntos
+        indices = self._columnas(archivo, COLUMNAS_PUNTOS, POSICIONES_PUNTOS).indices
 
         for numero_fila, fila in enumerate(filas, start=2):
 
-            def campo(indice: int) -> str:
-                return fila[indice].strip() if len(fila) > indice else ""
+            def campo(nombre: str) -> str:
+                indice = indices.get(nombre)
+                return fila[indice].strip() if indice is not None and len(fila) > indice else ""
 
-            if normalizar_tipo(campo(PD_TIPO)) != "PD":
+            # En esta planilla todo es punto de datos: un tipo vacío también lo es.
+            if campo("tipo") and self._tipo(campo("tipo"), archivo) != "PD":
                 self.resultado.advertencias.append(
-                    f"{self.archivo_puntos} fila {numero_fila}: tipo no reconocido "
-                    f"'{campo(PD_TIPO)}'"
+                    f"{archivo} fila {numero_fila}: tipo «{campo('tipo')}» no es un punto de "
+                    "datos; la fila no se importó"
                 )
                 continue
 
-            ubicacion = piso_y_tramo(campo(PD_UBICACION))
+            rotulo = campo("etiqueta")
+            partes = RE_ROTULO_PD.match(rotulo.replace(" ", ""))
+            ubicacion = piso_y_tramo(campo("ubicacion"))
+            if ubicacion is None and partes:
+                # Sin piso en la ubicación, el del rótulo.
+                ubicacion = (
+                    f"P{int(partes.group(1) or 0):02d}",
+                    f"T{int(partes.group(2))}" if partes.group(2) else None,
+                )
             if ubicacion is None:
                 self.resultado.advertencias.append(
-                    f"{self.archivo_puntos} fila {numero_fila}: ubicación ilegible "
-                    f"'{campo(PD_UBICACION)}'"
+                    f"{archivo} fila {numero_fila}: no se entiende el piso de la ubicación "
+                    f"«{campo('ubicacion')}» (escriba, por ejemplo, «Piso 1 - Tramo 2» o «P01-T2»); "
+                    "la fila no se importó"
                 )
                 continue
             codigo_piso, codigo_tramo = ubicacion
-
-            rotulo = campo(PD_ETIQUETA)
-            partes = RE_ROTULO_PD.match(rotulo)
             numero_rack: int | None = None
             puerto: str | None = None
 
             if partes:
                 # Sin número de piso es un rótulo del subterráneo (SUB-…).
+                rotulo = rotulo.replace(" ", "")
                 piso_rotulo = f"P{int(partes.group(1) or 0):02d}"
                 tramo_rotulo = f"T{int(partes.group(2))}" if partes.group(2) else None
                 numero_rack = int(partes.group(3))
@@ -984,7 +1118,8 @@ class Importador:
 
             piso = self.territorio.piso(codigo_piso)
             tramo = self.territorio.tramo(codigo_piso, codigo_tramo)
-            recinto = nombre_recinto(campo(PD_ROSETA))
+            recinto = componer_ubicacion(campo("sala"), nombre_recinto(campo("roseta")))
+            referencia = f"{archivo} fila {numero_fila}"
 
             # --- Punto de datos (PD) -------------------------------------
             if puerto:
@@ -1005,7 +1140,7 @@ class Importador:
                 continue
             codigo_pd = self._codigo_unico(codigo_base, f"{recinto} (fila {numero_fila})")
 
-            estado = normalizar_estado(campo(PD_ESTADO_OP))
+            estado = self._estado(campo("estado_operativo"), archivo, f"la fila {numero_fila}")
             atributos: dict = {
                 "estado_puerto": (
                     "habilitado" if estado is EstadoOperativo.ACTIVO else "deshabilitado"
@@ -1029,12 +1164,12 @@ class Importador:
                 tramo_id=tramo.id if tramo else None,
                 etiqueta=rotulo or None,
                 ubicacion_descriptiva=recinto,
-                numero_recinto=self._numero_recinto(
-                    recinto, piso.codigo, f"{self.archivo_puntos} fila {numero_fila}"
-                ),
+                numero_recinto=self._recinto(campo("sala"), recinto, piso, referencia),
                 estado_operativo=estado,
-                estado_condicion=normalizar_condicion(campo(PD_ESTADO_COND)),
-                observaciones=campo(PD_NOTAS) or None,
+                estado_condicion=self._condicion(
+                    campo("estado_condicion"), archivo, f"la fila {numero_fila}"
+                ),
+                observaciones=campo("notas") or None,
                 atributos=atributos,
             )
             self.resultado.puntos += 1

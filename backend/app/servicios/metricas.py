@@ -44,6 +44,7 @@ from app.models import (
     Piso,
     TipoElemento,
 )
+from app.servicios.latidos import estado_latidos
 from app.servicios.validacion import evaluar_completitud
 
 #: Valor numérico del estado operativo, de mejor a peor: los umbrales de
@@ -87,6 +88,23 @@ class ColectorInventario:
             [configuracion.version, "sqlite" if configuracion.es_sqlite else "postgresql"], 1
         )
         yield info
+
+        # Latido del monitoreo (RNF5): cuándo se supo de cada herramienta.
+        contacto = GaugeMetricFamily(
+            "netdoc_monitoreo_ultimo_contacto_timestamp_seconds",
+            "Última vez que se supo de cada herramienta de monitoreo (época Unix)",
+            labels=["fuente"],
+        )
+        al_dia = GaugeMetricFamily(
+            "netdoc_monitoreo_al_dia",
+            "1 si la herramienta informó dentro de NETDOC_MONITOREO_LATIDO_MINUTOS",
+            labels=["fuente"],
+        )
+        for latido in estado_latidos(sesion):
+            contacto.add_metric([latido.fuente], latido.ultimo_contacto.timestamp())
+            al_dia.add_metric([latido.fuente], 1 if latido.al_dia else 0)
+        yield contacto
+        yield al_dia
 
         conteo = GaugeMetricFamily(
             "netdoc_elementos",

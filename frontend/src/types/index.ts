@@ -270,6 +270,20 @@ export interface RespuestaMapa {
   marca: string
 }
 
+/** Una herramienta de monitoreo que dejó de informar (backend/app/servicios/latidos.py). */
+export interface MonitoreoSinLatido {
+  fuente: string
+  /** Para mostrar: «Zabbix», «Alertmanager». */
+  nombre: string
+  /** Minutos desde que se supo de ella por última vez. */
+  minutos: number
+}
+
+export interface Novedades {
+  marca: string
+  monitoreo_sin_latido: MonitoreoSinLatido[]
+}
+
 export interface OpcionEnum {
   valor: string
   etiqueta: string

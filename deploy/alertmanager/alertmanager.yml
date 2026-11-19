@@ -1,6 +1,8 @@
 # Alertmanager para NetDoc. Solo las alertas de disponibilidad (netdoc =
-# disponibilidad) van al webhook, que cambia el estado del elemento; el resto
-# se descarta aquí y se puede enviar a correo o chat agregando receptores.
+# disponibilidad) y el latido (netdoc = latido) van al webhook: las primeras
+# cambian el estado del elemento y el segundo solo dice que el monitoreo
+# funciona. El resto se descarta aquí y se puede enviar a correo o chat
+# agregando receptores.
 route:
   receiver: descartar
   group_by: [netdoc_codigo]
@@ -11,6 +13,15 @@ route:
     - receiver: netdoc
       matchers:
         - netdoc = "disponibilidad"
+    # El latido (NetDocLatido) siempre está activo: se reenvía cada 5 minutos,
+    # menos que el plazo con que NetDoc da a Alertmanager por callado (15).
+    - receiver: netdoc
+      matchers:
+        - netdoc = "latido"
+      group_by: [alertname]
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 5m
 
 receivers:
   - name: descartar
