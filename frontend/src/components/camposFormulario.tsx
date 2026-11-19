@@ -22,7 +22,7 @@ const CLAVE_USUARIO = 'netdoc.usuario'
  * plano («1083» en el CADI, «09» en la Biblioteca); nada si aún no hay salas.
  */
 export function ejemploDeSala(recintos: Recinto[]): Recinto | undefined {
-  return recintos.find((r) => !/^R\d{2,3}$/.test(r.numero))
+  return recintos.find((r) => !r.es_rack)
 }
 
 /** El ejemplo de Ubicación, con una sala del piso si la hay. */

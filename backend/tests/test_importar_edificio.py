@@ -8,7 +8,13 @@ import pytest
 
 from app.db.session import SesionLocal
 from app.scripts import importar_cadi
-from app.scripts.importar_edificio import DIR_DATA, ReglasLamina, contar_elementos, main
+from app.scripts.importar_edificio import (
+    DIR_DATA,
+    ReglasLamina,
+    columnas_opcionales,
+    contar_elementos,
+    main,
+)
 
 API = "/api/v1"
 ENCABEZADO = "Elemento,Etiqueta,Tipo,Ubicación,Estado Operativo,Estado Condición,Notas,Rack,Foto\n"
@@ -239,8 +245,8 @@ def test_columnas_opcionales_de_ip_mac_serie_e_inventario(cliente, tmp_path, cap
     main(["REC", "--datos", str(tmp_path)])
 
     salida = capsys.readouterr().out
-    assert "IP inválida '10.60.0.300' en SW-MAL" in salida
-    assert "N° de inventario UMAG inválido 'INV-77' en SW-MAL (lleva solo cifras)" in salida
+    assert "'10.60.0.300' en SW-MAL: no es una dirección IP válida; se omitió" in salida
+    assert "'INV-77' en SW-MAL: el N° de inventario UMAG lleva solo cifras" in salida
     registros = {
         r["codigo"]: r
         for r in cliente.get(f"{API}/integraciones/inventario?edificio=REC").json()["elementos"]
@@ -251,6 +257,24 @@ def test_columnas_opcionales_de_ip_mac_serie_e_inventario(cliente, tmp_path, cap
     assert (bueno["equipo"]["numero_serie"], bueno["equipo"]["numero_inventario"]) == ("FOC1234X", "0045123")
     assert registros["REC-SW02-P01"]["red"]["direccion_ip"] is None
     assert registros["REC-SW02-P01"]["equipo"]["numero_inventario"] is None
+
+
+@pytest.mark.parametrize(
+    ("encabezado", "campo"),
+    [
+        ("N° de serie", "numero_serie"),
+        ("Número de serie", "numero_serie"),
+        ("Serie", "numero_serie"),
+        ("N° de inventario UMAG", "numero_inventario"),
+        ("N° inventario UMAG", "numero_inventario"),
+        ("Nro. de inventario", "numero_inventario"),
+        ("Inventario", "numero_inventario"),
+        ("IP de gestión", "direccion_ip"),
+        ("Dirección MAC", "direccion_mac"),
+    ],
+)
+def test_encabezados_de_las_columnas_opcionales(encabezado, campo):
+    assert columnas_opcionales(["Elemento", "Notas", encabezado]) == {campo: 2}
 
 
 def test_subterraneo_con_rotulos_sub_y_rack_de_otro_piso(cliente, tmp_path, capsys):

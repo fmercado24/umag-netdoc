@@ -9,7 +9,7 @@ from app.servicios.ocr_recintos import (
     Lectura,
     como_numero,
     es_el_numero_esperado,
-    interpretar_lecturas,
+    interpretar,
     interpretar_racks,
 )
 from app.servicios.planos import quitar_caracteres_de_control
@@ -97,7 +97,7 @@ def _lectura(texto, x, y, ancho=15, alto=6):
     return Lectura(texto, x, y, x + ancho, y + alto)
 
 
-def test_interpretar_lecturas_toma_nombre_numero_y_punto_bajo_el_rotulo():
+def test_interpretar_toma_nombre_numero_y_punto_bajo_el_rotulo():
     lecturas = [
         _lectura("SECRETARÍA", 92, 100, ancho=40),
         _lectura("RECEPCIÓN", 94, 108, ancho=36),
@@ -112,7 +112,8 @@ def test_interpretar_lecturas_toma_nombre_numero_y_punto_bajo_el_rotulo():
         _lectura("1999", 600, 600, alto=20),
         _lectura("D02", 700, 700),
     ]
-    recintos, avisos = interpretar_lecturas(lecturas, "P01")
+    interpretacion = interpretar(lecturas, "P01")
+    recintos, avisos = interpretacion.recintos, interpretacion.avisos
 
     por_numero = {r.numero: r for r in recintos}
     assert set(por_numero) == {"1082", "1060"}
@@ -131,9 +132,8 @@ def test_un_numero_repetido_lejos_se_resuelve_con_los_nombres_de_las_planillas()
         _lectura("BOX DE ATENCION 2", 100, 100, ancho=60),
         _lectura("2019", 120, 108),
     ]
-    recintos, avisos = interpretar_lecturas(
-        lecturas, "P02", {"2019": {"Box de atención 2 2019"}}
-    )
+    interpretacion = interpretar(lecturas, "P02", {"2019": {"Box de atención 2 2019"}})
+    recintos, avisos = interpretacion.recintos, interpretacion.avisos
     assert [(r.numero, r.nombre) for r in recintos] == [("2019", "BOX DE ATENCION 2")]
     assert "aparece 2 veces" in avisos[0]
 

@@ -42,8 +42,6 @@ function casiIguales(una: string, otra: string): boolean {
 /** «09» y «9» son la misma sala. */
 const sinCeros = (codigo: string) => codigo.toUpperCase().replace(/\s+/g, '').replace(/^0+(?=\d)/, '')
 
-const esRack = (r: Recinto) => /^R\d{2,3}$/.test(r.numero)
-
 function orden(codigo: string): (string | number)[] {
   return codigo.split(/(\d+)/).map((t) => (/^\d+$/.test(t) ? Number(t) : t))
 }
@@ -64,7 +62,7 @@ function compararCodigos(a: string, b: string): number {
 /** Una por código: la misma sala puede verse en las láminas de dos tramos. */
 function salasDelPiso(recintos: Recinto[]): Recinto[] {
   const porCodigo = new Map<string, Recinto>()
-  for (const r of recintos) if (!esRack(r) && !porCodigo.has(r.numero)) porCodigo.set(r.numero, r)
+  for (const r of recintos) if (!r.es_rack && !porCodigo.has(r.numero)) porCodigo.set(r.numero, r)
   return [...porCodigo.values()].sort((a, b) => compararCodigos(a.numero, b.numero))
 }
 

@@ -284,7 +284,7 @@ instalar_node_oficial() {
 }
 
 paso "Instalando paquetes del sistema"
-PAQUETES=(python3 python3-venv curl openssl ca-certificates nginx rsync)
+PAQUETES=(python3 python3-venv curl openssl ca-certificates nginx rsync cron)
 if [[ "$BASE" == sqlite || -n "$MOTOR_ACTUAL" ]]; then PAQUETES+=(sqlite3); fi
 if [[ "$BASE" == postgresql ]]; then
   if [[ -n "$POSTGRES_URL" ]]; then PAQUETES+=(postgresql-client); else PAQUETES+=(postgresql); fi
@@ -335,12 +335,15 @@ if [[ "$ORIGEN" != "$APP" ]]; then
   rsync -a --delete --chown=root:root --chmod=go-w,go+rX \
     --exclude='.git/' --exclude='node_modules/' --exclude='backend/.venv/' \
     --exclude='frontend/dist/' --exclude='backend/media/' --exclude='backend/certs/' \
-    --exclude='*.db' --exclude='*.log' --exclude='.env' --exclude='.env.local' \
+    --exclude='*.db' --exclude='*.log' --exclude='.env*' \
     --exclude='__pycache__/' --exclude='.pytest_cache/' --exclude='.ruff_cache/' \
     --exclude='*:Zone.Identifier' --exclude='docs/*.pdf' \
     "$ORIGEN/" "$APP/"
 fi
 install -m 755 "$APP/deploy/servidor/netdoc" /usr/local/bin/netdoc
+# El respaldo de cada noche (SOP §11.4). Si alguien cambió su horario, se respeta.
+[[ -f /etc/cron.d/netdoc-respaldo ]] ||
+  echo '30 2 * * * root /usr/local/bin/netdoc respaldar' >/etc/cron.d/netdoc-respaldo
 
 # --- Dependencias -------------------------------------------------------------------
 if [[ "$BASE" == postgresql ]]; then BLOQUEO="$APP/backend/requirements-postgres.lock"; else BLOQUEO="$APP/backend/requirements.lock"; fi
@@ -430,7 +433,6 @@ if [[ ! -f "$CONFIG" ]]; then
   cat >"$CONFIG" <<EOF
 # Configuración de NetDoc en este servidor. Tiene secretos: solo root la lee.
 # Variables disponibles: $APP/.env.example
-NETDOC_ENTORNO=produccion
 NETDOC_DIR_MEDIA=$DATOS/media
 EOF
 fi

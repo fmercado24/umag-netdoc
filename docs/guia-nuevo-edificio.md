@@ -142,7 +142,7 @@ de las planillas del CADI y van en este orden; las tres últimas son opcionales.
 | IP *(opcional)* | IP de gestión | `10.40.0.2` | Necesaria para el monitoreo |
 | MAC *(opcional)* | MAC | `AA:BB:CC:DD:EE:FF` | Se normaliza a mayúsculas con `:` |
 | N° de serie *(opcional)* | Serie del fabricante | `FOC2345Y0AB` | |
-| N° de inventario UMAG *(opcional)* | Etiqueta de activo fijo de la universidad | `0045123` | Solo cifras; se conservan los ceros iniciales |
+| N° de inventario UMAG *(opcional)* | Etiqueta de activo fijo de la universidad | `00000000000000` | Solo cifras; se conservan los ceros iniciales |
 
 Las columnas opcionales se reconocen por su encabezado (`IP`, `IP de gestión`,
 `MAC`, `N° de serie`, `Número de serie`, `Serie`, `N° de inventario UMAG`,

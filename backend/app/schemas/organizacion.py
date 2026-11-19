@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from app.servicios.recintos import es_rotulo_de_rack
 from app.servicios.teselas import leer_teselas
 
 BASE = ConfigDict(from_attributes=True)
@@ -80,6 +81,12 @@ class RecintoLeer(BaseModel):
     tramo_codigo: str | None = None
     pos_x: float
     pos_y: float
+
+    @computed_field
+    @property
+    def es_rack(self) -> bool:
+        """Es el rótulo de un rack («R08»), no una sala."""
+        return es_rotulo_de_rack(self.numero)
 
 
 class TramoLeer(BaseModel):

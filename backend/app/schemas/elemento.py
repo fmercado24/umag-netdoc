@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
-import ipaddress
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.models.enums import (
     Criticidad,
@@ -14,7 +13,7 @@ from app.models.enums import (
     OrigenCambio,
 )
 from app.schemas.organizacion import PlanoLeer, RecintoLeer
-from app.servicios.validacion import RE_INVENTARIO, RE_MAC
+from app.servicios.validacion import NORMALIZAR
 
 BASE = ConfigDict(from_attributes=True)
 
@@ -26,33 +25,12 @@ class _RedValidada(BaseModel):
     """Formato de IP, MAC y N° de inventario, común al alta y a la edición.
     Vacío = sin dato."""
 
-    @field_validator("numero_inventario", check_fields=False)
+    @field_validator(*NORMALIZAR, check_fields=False)
     @classmethod
-    def _inventario_valido(cls, valor: str | None) -> str | None:
+    def _normalizar(cls, valor: str | None, info: ValidationInfo) -> str | None:
         if valor is None or not valor.strip():
             return None
-        if not RE_INVENTARIO.match(valor.strip()):
-            raise ValueError("el N° de inventario UMAG lleva solo cifras, sin letras ni signos")
-        return valor.strip()
-
-    @field_validator("direccion_ip", check_fields=False)
-    @classmethod
-    def _ip_valida(cls, valor: str | None) -> str | None:
-        if valor is None or not valor.strip():
-            return None
-        try:
-            return str(ipaddress.ip_address(valor.strip()))
-        except ValueError:
-            raise ValueError("no es una dirección IP válida") from None
-
-    @field_validator("direccion_mac", check_fields=False)
-    @classmethod
-    def _mac_valida(cls, valor: str | None) -> str | None:
-        if valor is None or not valor.strip():
-            return None
-        if not RE_MAC.match(valor.strip()):
-            raise ValueError("debe tener el formato AA:BB:CC:DD:EE:FF")
-        return valor.strip().upper().replace("-", ":")
+        return NORMALIZAR[info.field_name](valor.strip())
 
 
 class ElementoCrear(_RedValidada):

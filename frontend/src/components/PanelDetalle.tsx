@@ -143,7 +143,7 @@ export function PanelDetalle({
   // Dónde lo ubica el sistema: un rack, sobre su rótulo en la lámina
   // («RACK 08», clave R08); el resto, en el recinto de su número.
   const recinto = detalle.recinto_en_plano
-  const sobreRotuloDeRack = recinto !== null && /^R\d{2,3}$/.test(recinto.numero)
+  const sobreRotuloDeRack = recinto?.es_rack ?? false
   const nombreDelRecinto = recinto && !sobreRotuloDeRack ? recinto.nombre : null
   // Tiene número, pero ese número no está rotulado en las láminas del piso.
   const recintoNoEncontrado = detalle.numero_recinto !== null && recinto === null

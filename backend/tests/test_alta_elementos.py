@@ -223,3 +223,24 @@ def test_numero_de_inventario_umag(cliente):
     # Vacío lo borra.
     vaciado = cliente.patch(f"{API}/elementos/{codigo}", json={"numero_inventario": ""}).json()
     assert vaciado["numero_inventario"] is None
+
+
+def test_los_equipos_completan_su_ficha_con_serie_e_inventario(cliente):
+    _piso(cliente, "P47", "T1")
+
+    def pendientes(codigo):
+        completitud = cliente.get(f"{API}/elementos/{codigo}").json()["completitud"]
+        return {f["clave"] for f in completitud["faltantes"]}, completitud["total_obligatorios"]
+
+    # Un switch los debe, como pide su ficha del SOP (sección 9.2.1).
+    switch = _alta(cliente, tipo="SW", piso="P47", tramo="T1").json()["codigo"]
+    faltan, total_switch = pendientes(switch)
+    assert {"numero_serie", "numero_inventario"} <= faltan
+    cliente.patch(f"{API}/elementos/{switch}", json={"numero_serie": "FOC1", "numero_inventario": "0045"})
+    faltan, total = pendientes(switch)
+    assert not {"numero_serie", "numero_inventario"} & faltan
+    assert total == total_switch
+
+    # Un rack no: su ficha no los pide.
+    faltan, _ = pendientes(_rack(cliente, "P47"))
+    assert not {"numero_serie", "numero_inventario"} & faltan

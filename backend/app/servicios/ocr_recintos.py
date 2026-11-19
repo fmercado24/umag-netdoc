@@ -347,27 +347,18 @@ class Interpretacion:
     usadas: set[int] = field(default_factory=set)
 
 
-def interpretar_lecturas(
-    lecturas: list[Lectura],
-    codigo_piso: str,
-    esperados: dict[str, set[str]] | None = None,
-) -> tuple[list[RecintoLeido], list[str]]:
-    """Los recintos del piso entre lo que leyó el OCR, y los avisos.
-
-    ``esperados`` (número → ubicaciones de las planillas) desempata un número
-    que aparece en más de un lugar de la lámina: se elige el de nombre más
-    parecido al de las planillas.
-    """
-    interpretacion = interpretar(lecturas, codigo_piso, esperados)
-    return interpretacion.recintos, interpretacion.avisos
-
-
 def interpretar(
     lecturas: list[Lectura],
     codigo_piso: str,
     esperados: dict[str, set[str]] | None = None,
 ) -> Interpretacion:
-    """Como ``interpretar_lecturas``, con lo que necesita la segunda lectura."""
+    """Los recintos del piso entre lo que leyó el OCR, sus avisos y lo que
+    necesita la segunda lectura.
+
+    ``esperados`` (número → ubicaciones de las planillas) desempata un número
+    que aparece en más de un lugar de la lámina: se elige el de nombre más
+    parecido al de las planillas.
+    """
     esperados = esperados or {}
     rotulado = reconocer_rotulado(lecturas, codigo_piso)
     if rotulado is None:

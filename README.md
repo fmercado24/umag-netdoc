@@ -47,7 +47,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           617 pruebas (pytest)
+│   └── tests/           629 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -563,7 +563,7 @@ propio.
 
 ## Estado actual
 
-- Backend completo y verificado: 617 pruebas en verde, en SQLite y en PostgreSQL 18.
+- Backend completo y verificado: 629 pruebas en verde, en SQLite y en PostgreSQL 18.
 - Instalación en servidor probada en Ubuntu Server 24.04 y 26.04
   ([qué se probó](docs/instalacion-servidor.md#qué-se-probó)).
 - 389 elementos del CADI importados desde las planillas por tramo y de puntos

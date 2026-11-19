@@ -35,6 +35,7 @@ flowchart LR
 | `/etc/systemd/system/netdoc.service` | El servicio. Corre como `netdoc`, sin privilegios y con el resto del sistema en solo lectura | Lo reescribe el instalador |
 | `/etc/nginx/sites-available/netdoc` | HTTPS y reenvío a la API | Lo reescribe el instalador |
 | `/usr/local/bin/netdoc` | El comando de administración (sección 7) | Lo reescribe el instalador |
+| `/etc/cron.d/netdoc-respaldo` | El respaldo de cada noche (sección 9) | Lo crea el instalador si no existe; su horario se puede cambiar |
 
 ## 2. Requisitos
 
@@ -43,7 +44,7 @@ flowchart LR
 | Sistema | Ubuntu Server **24.04 o 26.04 LTS** | 22.04 no sirve: su Python es 3.10 y NetDoc requiere 3.11 o superior |
 | Permisos | Un usuario con `sudo` | NetDoc en sí corre con su propio usuario, sin privilegios |
 | Memoria | **4 GB** | En uso normal ocupa poco (la API, unos 100 MB), pero al dibujar cada lámina o leer sus salas, un proceso llega a 1 GB (de a uno). Es lo que se probó; con menos, agregue memoria de intercambio |
-| Disco | **10 GB** libres | NetDoc y el CADI ocupan unos 500 MB, el OCR que lee las salas de los planos otros 400 MB, y cada respaldo, unos 200 MB (se guardan 14). Suma lo que traigan otros edificios |
+| Disco | **20 GB** libres | NetDoc y el CADI ocupan unos 500 MB, el OCR que lee las salas de los planos otros 400 MB, y cada respaldo, unos 200 MB: se guardan los de los últimos 30 días y el primero de cada mes durante un año, unos 43 (cerca de 9 GB). Suma lo que traigan otros edificios |
 | Internet | Durante la instalación y al actualizar | Para `apt`, PyPI y npm; en Ubuntu 24.04, también nodejs.org. Después no lo necesita |
 | Red | Puertos 80 y 443 hacia los usuarios | El 8000, solo si usa monitoreo (sección 11) |
 
@@ -78,12 +79,12 @@ usarla sin `sudo`. El instalador la deja a nombre de quien lo ejecuta con `sudo`
 entonces, `git pull` y `git status` van sin `sudo`. Lo que se instala en `/opt/netdoc` sigue
 siendo de root.
 
-Sin acceso desde el servidor, cópielo desde otro equipo. No copie `.env`: tiene el hash de
+Sin acceso desde el servidor, cópielo desde otro equipo. No copie `.env` ni sus copias (`.env.*`): tienen el hash de
 la contraseña de ese equipo.
 
 ```bash
 rsync -av --exclude .git --exclude node_modules --exclude .venv --exclude dist \
-  --exclude 'backend/media' --exclude '*.db' --exclude .env --exclude '*.log' \
+  --exclude 'backend/media' --exclude '*.db' --exclude '.env*' --exclude '*.log' \
   umag-netdoc/ usuario@servidor:umag-netdoc/
 ```
 
@@ -247,19 +248,22 @@ nunca reemplaza lo existente, incluido lo que se haya agregado desde el visor.
 ## 9. Respaldos
 
 ```bash
-sudo netdoc respaldar                 # en /var/lib/netdoc/respaldos; conserva los últimos 14
+sudo netdoc respaldar                 # en /var/lib/netdoc/respaldos (ver abajo qué conserva)
 sudo netdoc respaldar /mnt/respaldos  # en otra carpeta; ahí no borra ninguno
 ```
+
+En `/var/lib/netdoc/respaldos` quedan, como pide el SOP (sección 12), **los de los últimos 30
+días y el primero de cada mes durante un año**; los demás se borran al respaldar. Se cuentan por
+la fecha de su nombre, así que los que se hacen antes de actualizar o restaurar no acortan el
+mes.
 
 Cada respaldo es un `.tar.gz` con la base, los planos y fotos, y la configuración. Se puede
 hacer con el servicio corriendo. **Contiene el hash de la contraseña y las claves de la base:
 guárdelo como un secreto.**
 
-Para hacerlo todas las noches, a las 02:30:
-
-```bash
-echo '30 2 * * * root /usr/local/bin/netdoc respaldar' | sudo tee /etc/cron.d/netdoc-respaldo
-```
+El instalador lo programa **todas las noches a las 02:30** (SOP §11.4), en
+`/etc/cron.d/netdoc-respaldo`. Para otro horario, edite ese archivo: el instalador no lo vuelve a
+escribir si ya existe.
 
 **Un respaldo en el mismo disco no protege de perder el servidor.** Cópielos a otro equipo,
 por ejemplo desde este, con un usuario que pueda leerlos:
@@ -394,9 +398,12 @@ programa que administra los usuarios tiene pruebas automáticas, pero el comando
 en un servidor. Y para el OCR que lee las salas: sus versiones fijadas
 (`requirements-ocr.lock`) se instalaron con `--require-hashes` en Python 3.12 y 3.14 y leen
 igual los planos de la Biblioteca, sin necesitar libGL, pero el instalador que las instala no
-se corrió en estas máquinas virtuales. Revisar la versión nueva en GitHub al actualizar se
-probó con un repositorio de prueba (al día, sí, no, sin terminal, `--actualizar`, sin conexión,
-cambios propios que chocan, carpeta sin git), pero no en un servidor con `sudo`.
+se corrió en estas máquinas virtuales. Revisar la versión nueva en GitHub al actualizar, y dejar la
+carpeta a nombre de quien ejecuta `sudo`, se prueban con un repositorio de prueba
+(`deploy/servidor/probar-instalador.sh`, que corre con las pruebas automáticas: al día, sí, no,
+sin terminal, `--actualizar`, sin conexión, cambios propios que chocan, carpeta de root o de otra
+persona), pero no se corrieron como root en un servidor. Lo mismo vale para la poda de respaldos
+(30 días y uno por mes durante un año) y el respaldo programado de cada noche.
 
 **No se probó:** el perfil de monitoreo con contenedores reales (sección 11): se reprodujeron
 sus peticiones contra el puerto 8000, con su token y certificado, pero no con Docker,

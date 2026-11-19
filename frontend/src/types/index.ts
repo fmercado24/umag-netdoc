@@ -76,6 +76,8 @@ export interface Recinto {
   tramo_codigo: string | null
   pos_x: number
   pos_y: number
+  /** Es el rótulo de un rack («R08»), no una sala: lo decide el servidor. */
+  es_rack: boolean
 }
 
 export interface Piso {

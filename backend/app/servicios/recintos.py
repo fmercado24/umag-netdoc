@@ -623,8 +623,8 @@ PALABRAS_VACIAS = frozenset({"DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "A", "E
 
 
 def palabras_clave(texto: str | None) -> set[str]:
-    base = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().upper()
-    return {p for p in re.findall(r"[A-Z]+", base) if p not in PALABRAS_VACIAS}
+    """Las palabras del nombre, sin sus cifras: para comparar nombres parecidos."""
+    return {p for p in palabras_del_nombre(texto) if not p.isdigit()}
 
 
 def _misma_palabra(una: str, otra: str) -> bool:

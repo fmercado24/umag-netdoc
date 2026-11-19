@@ -24,6 +24,30 @@ RE_MAC = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
 #: N° de Inventario UMAG: solo cifras.
 RE_INVENTARIO = re.compile(r"^\d{1,30}$")
 
+
+def _ip(valor: str) -> str:
+    try:
+        return str(ipaddress.ip_address(valor))
+    except ValueError:
+        raise ValueError("no es una dirección IP válida") from None
+
+
+def _mac(valor: str) -> str:
+    if not RE_MAC.match(valor):
+        raise ValueError("debe tener el formato AA:BB:CC:DD:EE:FF")
+    return valor.upper().replace("-", ":")
+
+
+def _inventario(valor: str) -> str:
+    if not RE_INVENTARIO.match(valor):
+        raise ValueError("el N° de inventario UMAG lleva solo cifras, sin letras ni signos")
+    return valor
+
+
+#: Cómo se guardan la IP, la MAC y el N° de inventario de un equipo, al darlo de
+#: alta, al editarlo y al importar planillas. Cada una lanza ValueError con el motivo.
+NORMALIZAR = {"direccion_ip": _ip, "direccion_mac": _mac, "numero_inventario": _inventario}
+
 #: Atributos comunes obligatorios del SOP sección 9.1 que se controlan como
 #: columnas del elemento. ``codigo``, ``tipo``, ``edificio`` y ``piso`` no
 #: aparecen porque el modelo los exige al crear la fila.
@@ -35,6 +59,13 @@ COMUNES_OBLIGATORIOS: tuple[tuple[str, str], ...] = (
     ("fecha_instalacion", "Fecha de instalación"),
     ("fecha_ultimo_levantamiento", "Fecha del último levantamiento"),
     ("responsable_id", "Responsable"),
+)
+
+#: Columnas del elemento que la ficha de su tipo exige en el SOP sección 9.2:
+#: los equipos llevan su N° de serie y su N° de Inventario UMAG.
+POR_TIPO_OBLIGATORIOS: dict[str, tuple[tuple[str, str], ...]] = dict.fromkeys(
+    ("SW", "AP", "UPS", "MC", "ONT"),
+    (("numero_serie", "N° de serie"), ("numero_inventario", "N° de Inventario UMAG")),
 )
 
 
@@ -144,7 +175,8 @@ def evaluar_completitud(
     faltantes: list[dict[str, str]] = []
     total = 0
 
-    for clave, etiqueta in COMUNES_OBLIGATORIOS:
+    del_tipo = POR_TIPO_OBLIGATORIOS.get(elemento.tipo.codigo, ())
+    for clave, etiqueta in (*COMUNES_OBLIGATORIOS, *del_tipo):
         total += 1
         if clave == "coordenadas":
             # Lo montado en un rack o punto de datos toma las del contenedor.

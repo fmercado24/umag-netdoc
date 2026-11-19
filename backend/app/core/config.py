@@ -36,7 +36,6 @@ class Configuracion(BaseSettings):
 
     nombre_app: str = "Sistema de documentación visual de infraestructura de red — UMAG"
     version: str = "0.1.0"
-    entorno: str = "desarrollo"
 
     #: URL de conexión SQLAlchemy. SQLite por defecto para poder trabajar sin
     #: servicios externos; el modelo es compatible con PostgreSQL sin cambios.

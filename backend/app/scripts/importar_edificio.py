@@ -49,7 +49,6 @@ from __future__ import annotations
 import argparse
 import csv
 import io
-import ipaddress
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -90,7 +89,7 @@ from app.servicios.recintos import (
     prefijo_de_piso,
     sincronizar_y_ubicar,
 )
-from app.servicios.validacion import RE_INVENTARIO, RE_MAC
+from app.servicios.validacion import NORMALIZAR
 
 DIR_DATA = DIR_PROYECTO / "data"
 
@@ -243,21 +242,8 @@ COLUMNAS_OPCIONALES = {
     "direccion ip": "direccion_ip",
     "mac": "direccion_mac",
     "direccion mac": "direccion_mac",
-    "n de serie": "numero_serie",
-    "no de serie": "numero_serie",
-    "nro de serie": "numero_serie",
-    "numero de serie": "numero_serie",
     "serie": "numero_serie",
-    "n de inventario": "numero_inventario",
-    "no de inventario": "numero_inventario",
-    "nro de inventario": "numero_inventario",
-    "numero de inventario": "numero_inventario",
     "inventario": "numero_inventario",
-    "n de inventario umag": "numero_inventario",
-    "no de inventario umag": "numero_inventario",
-    "nro de inventario umag": "numero_inventario",
-    "numero de inventario umag": "numero_inventario",
-    "inventario umag": "numero_inventario",
 }
 
 
@@ -268,6 +254,8 @@ def columnas_opcionales(encabezado: list[str]) -> dict[str, int]:
     for indice, nombre in enumerate(encabezado):
         clave = re.sub(r"[^a-z ]", "", _sin_tildes(nombre.strip().lower())).strip()
         clave = re.sub(r"\s+", " ", clave)
+        # «N° de serie», «Número de inventario UMAG»: ni el número ni la UMAG distinguen.
+        clave = re.sub(r"^(n|no|nro|numero) (de )?", "", clave).removesuffix(" umag")
         if clave in COLUMNAS_OPCIONALES:
             encontradas.setdefault(COLUMNAS_OPCIONALES[clave], indice)
     return encontradas
@@ -638,27 +626,14 @@ class Importador:
             valor = fila[indice].strip() if len(fila) > indice else ""
             if not valor:
                 continue
-            if campo == "direccion_ip":
+            if normalizar := NORMALIZAR.get(campo):
                 try:
-                    valor = str(ipaddress.ip_address(valor))
-                except ValueError:
+                    valor = normalizar(valor)
+                except ValueError as exc:
                     self.resultado.advertencias.append(
-                        f"{archivo}: IP inválida '{valor}' en {referencia}; se omitió"
+                        f"{archivo}: '{valor}' en {referencia}: {exc}; se omitió"
                     )
                     continue
-            elif campo == "direccion_mac":
-                if not RE_MAC.match(valor):
-                    self.resultado.advertencias.append(
-                        f"{archivo}: MAC inválida '{valor}' en {referencia}; se omitió"
-                    )
-                    continue
-                valor = valor.upper().replace("-", ":")
-            elif campo == "numero_inventario" and not RE_INVENTARIO.match(valor):
-                self.resultado.advertencias.append(
-                    f"{archivo}: N° de inventario UMAG inválido '{valor}' en {referencia} "
-                    "(lleva solo cifras); se omitió"
-                )
-                continue
             datos[campo] = valor
         return datos
 
