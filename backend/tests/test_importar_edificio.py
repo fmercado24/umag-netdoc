@@ -228,25 +228,29 @@ def test_agregar_suma_un_tramo_sin_tocar_lo_ya_importado(cliente, tmp_path, caps
     assert "Equipos:              0" in salida
 
 
-def test_columnas_opcionales_de_ip_mac_y_serie(cliente, tmp_path, capsys):
-    encabezado = ENCABEZADO.rstrip("\n") + ",IP,MAC,N° de serie\n"
+def test_columnas_opcionales_de_ip_mac_serie_e_inventario(cliente, tmp_path, capsys):
+    encabezado = ENCABEZADO.rstrip("\n") + ",IP,MAC,N° de serie,N° de inventario UMAG\n"
     (tmp_path / "rec-p01.csv").write_text(
         encabezado
-        + "Cisco CBS350,SW-REC,Switches,Sala 1,Operativo,Excelente,,,,10.60.0.2,aa-bb-cc-00-11-22,FOC1234X\n"
-        + "Cisco CBS250,SW-MAL,Switches,Sala 1,Operativo,Excelente,,,,10.60.0.300,,\n",
+        + "Cisco CBS350,SW-REC,Switches,Sala 1,Operativo,Excelente,,,,10.60.0.2,aa-bb-cc-00-11-22,FOC1234X,0045123\n"
+        + "Cisco CBS250,SW-MAL,Switches,Sala 1,Operativo,Excelente,,,,10.60.0.300,,,INV-77\n",
         encoding="utf-8",
     )
     main(["REC", "--datos", str(tmp_path)])
 
-    assert "IP inválida '10.60.0.300' en SW-MAL" in capsys.readouterr().out
+    salida = capsys.readouterr().out
+    assert "IP inválida '10.60.0.300' en SW-MAL" in salida
+    assert "N° de inventario UMAG inválido 'INV-77' en SW-MAL (lleva solo cifras)" in salida
     registros = {
         r["codigo"]: r
         for r in cliente.get(f"{API}/integraciones/inventario?edificio=REC").json()["elementos"]
     }
     bueno = registros["REC-SW01-P01"]
     assert (bueno["red"]["direccion_ip"], bueno["red"]["direccion_mac"]) == ("10.60.0.2", "AA:BB:CC:00:11:22")
-    assert bueno["equipo"]["numero_serie"] == "FOC1234X"
+    # Los ceros iniciales del inventario se conservan.
+    assert (bueno["equipo"]["numero_serie"], bueno["equipo"]["numero_inventario"]) == ("FOC1234X", "0045123")
     assert registros["REC-SW02-P01"]["red"]["direccion_ip"] is None
+    assert registros["REC-SW02-P01"]["equipo"]["numero_inventario"] is None
 
 
 def test_subterraneo_con_rotulos_sub_y_rack_de_otro_piso(cliente, tmp_path, capsys):

@@ -444,6 +444,7 @@ export function PanelDetalle({
             <Dato etiqueta="Marca" valor={detalle.marca} />
             <Dato etiqueta="Modelo" valor={detalle.modelo} />
             <Dato etiqueta="N° de serie" valor={detalle.numero_serie} />
+            <Dato etiqueta="N° de inventario UMAG" valor={detalle.numero_inventario} />
             <Dato etiqueta="MAC" valor={detalle.direccion_mac} />
             <Dato etiqueta="IP de gestión" valor={detalle.direccion_ip} />
             <Dato etiqueta="Instalación" valor={detalle.fecha_instalacion} />

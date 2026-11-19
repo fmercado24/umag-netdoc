@@ -184,6 +184,7 @@ def _aplicar_filtros(
                 Elemento.marca.ilike(patron),
                 Elemento.modelo.ilike(patron),
                 Elemento.numero_serie.ilike(patron),
+                Elemento.numero_inventario.ilike(patron),
                 Elemento.direccion_ip.ilike(patron),
                 Elemento.ubicacion_descriptiva.ilike(patron),
                 Elemento.observaciones.ilike(patron),

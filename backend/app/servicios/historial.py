@@ -33,6 +33,7 @@ CAMPOS_AUDITADOS: tuple[str, ...] = (
     "marca",
     "modelo",
     "numero_serie",
+    "numero_inventario",
     "direccion_mac",
     "direccion_ip",
     "fecha_instalacion",

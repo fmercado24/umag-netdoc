@@ -181,6 +181,7 @@ Table elemento [headercolor: #0f9d58] {
   marca varchar(80)
   modelo varchar(120)
   numero_serie varchar(120)
+  numero_inventario varchar(30)
   direccion_mac varchar(17)
   direccion_ip varchar(45)
   fecha_instalacion date
@@ -195,6 +196,7 @@ Table elemento [headercolor: #0f9d58] {
   indexes {
     direccion_ip [name: 'ix_elemento_direccion_ip']
     edificio_id [name: 'ix_elemento_edificio_id']
+    numero_inventario [name: 'ix_elemento_numero_inventario']
     numero_recinto [name: 'ix_elemento_numero_recinto']
     padre_id [name: 'ix_elemento_padre_id']
     piso_id [name: 'ix_elemento_piso_id']

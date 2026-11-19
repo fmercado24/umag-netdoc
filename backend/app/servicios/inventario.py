@@ -44,7 +44,12 @@ def a_registro(e: Elemento) -> dict:
             "y": e.representante_en_plano.pos_y,
         },
         "red": {"direccion_ip": e.direccion_ip, "direccion_mac": e.direccion_mac},
-        "equipo": {"marca": e.marca, "modelo": e.modelo, "numero_serie": e.numero_serie},
+        "equipo": {
+            "marca": e.marca,
+            "modelo": e.modelo,
+            "numero_serie": e.numero_serie,
+            "numero_inventario": e.numero_inventario,
+        },
         "fechas": {
             "instalacion": e.fecha_instalacion.isoformat() if e.fecha_instalacion else None,
             "ultimo_levantamiento": (
@@ -87,6 +92,7 @@ COLUMNAS_CSV = [
     "marca",
     "modelo",
     "numero_serie",
+    "numero_inventario",
     "fecha_instalacion",
     "fecha_ultimo_levantamiento",
     "creado_en",

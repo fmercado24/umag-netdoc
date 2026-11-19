@@ -138,6 +138,7 @@ completitud y los ids externos.
 | Marca / modelo | Manufacturer / Device type | Fabricante / Modelo |
 | Código del SOP | `name` o campo personalizado `netdoc_codigo` | Nombre |
 | N° de serie | `serial` | N° de serie |
+| N° de inventario UMAG | `asset_tag` | Número de inventario |
 | IP de gestión | Primary IP (IPAM) | Dirección IP de un puerto de red |
 | MAC | MAC de la interfaz | MAC del puerto de red |
 | Estado operativo | `status`: activo → active, inactivo → offline, en falla → failed, retirado → decommissioning | Estado |

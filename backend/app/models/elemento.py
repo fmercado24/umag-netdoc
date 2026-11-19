@@ -115,6 +115,9 @@ class Elemento(Base, MixinTiempos):
     marca: Mapped[str | None] = mapped_column(String(80))
     modelo: Mapped[str | None] = mapped_column(String(120))
     numero_serie: Mapped[str | None] = mapped_column(String(120))
+    #: N° de Inventario UMAG: el de la etiqueta de activo fijo de la
+    #: universidad. Solo cifras, y se guarda como texto por los ceros iniciales.
+    numero_inventario: Mapped[str | None] = mapped_column(String(30), index=True)
     direccion_mac: Mapped[str | None] = mapped_column(String(17))
     direccion_ip: Mapped[str | None] = mapped_column(String(45), index=True)
 

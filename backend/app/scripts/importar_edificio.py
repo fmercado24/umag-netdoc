@@ -90,7 +90,7 @@ from app.servicios.recintos import (
     prefijo_de_piso,
     sincronizar_y_ubicar,
 )
-from app.servicios.validacion import RE_MAC
+from app.servicios.validacion import RE_INVENTARIO, RE_MAC
 
 DIR_DATA = DIR_PROYECTO / "data"
 
@@ -248,11 +248,22 @@ COLUMNAS_OPCIONALES = {
     "nro de serie": "numero_serie",
     "numero de serie": "numero_serie",
     "serie": "numero_serie",
+    "n de inventario": "numero_inventario",
+    "no de inventario": "numero_inventario",
+    "nro de inventario": "numero_inventario",
+    "numero de inventario": "numero_inventario",
+    "inventario": "numero_inventario",
+    "n de inventario umag": "numero_inventario",
+    "no de inventario umag": "numero_inventario",
+    "nro de inventario umag": "numero_inventario",
+    "numero de inventario umag": "numero_inventario",
+    "inventario umag": "numero_inventario",
 }
 
 
 def columnas_opcionales(encabezado: list[str]) -> dict[str, int]:
-    """Posición de las columnas opcionales (IP, MAC, N° de serie) presentes."""
+    """Posición de las columnas opcionales (IP, MAC, N° de serie, N° de
+    inventario UMAG) presentes."""
     encontradas: dict[str, int] = {}
     for indice, nombre in enumerate(encabezado):
         clave = re.sub(r"[^a-z ]", "", _sin_tildes(nombre.strip().lower())).strip()
@@ -620,7 +631,8 @@ class Importador:
     def _datos_opcionales(
         self, fila: list[str], opcionales: dict[str, int], archivo: str, referencia: str
     ) -> dict:
-        """IP, MAC y número de serie, si la planilla trae esas columnas."""
+        """IP, MAC, número de serie y de inventario UMAG, si la planilla trae
+        esas columnas."""
         datos: dict = {}
         for campo, indice in opcionales.items():
             valor = fila[indice].strip() if len(fila) > indice else ""
@@ -641,6 +653,12 @@ class Importador:
                     )
                     continue
                 valor = valor.upper().replace("-", ":")
+            elif campo == "numero_inventario" and not RE_INVENTARIO.match(valor):
+                self.resultado.advertencias.append(
+                    f"{archivo}: N° de inventario UMAG inválido '{valor}' en {referencia} "
+                    "(lleva solo cifras); se omitió"
+                )
+                continue
             datos[campo] = valor
         return datos
 

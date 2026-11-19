@@ -147,6 +147,8 @@ export interface Elemento extends ElementoMapa {
   piso_codigo: string
   tramo_codigo: string | null
   numero_serie: string | null
+  /** N° de Inventario UMAG: solo cifras. */
+  numero_inventario: string | null
   criticidad: string | null
   unidad_rack: number | null
   responsable_nombre: string | null

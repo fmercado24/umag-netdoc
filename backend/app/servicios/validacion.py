@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from app.models import DefinicionAtributo, Elemento, TipoDato
 
 RE_MAC = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
+#: N° de Inventario UMAG: solo cifras.
+RE_INVENTARIO = re.compile(r"^\d{1,30}$")
 
 #: Atributos comunes obligatorios del SOP sección 9.1 que se controlan como
 #: columnas del elemento. ``codigo``, ``tipo``, ``edificio`` y ``piso`` no

@@ -52,6 +52,7 @@ type CampoBase =
   | 'marca'
   | 'modelo'
   | 'numero_serie'
+  | 'numero_inventario'
   | 'direccion_mac'
   | 'direccion_ip'
   | 'fecha_instalacion'
@@ -70,6 +71,7 @@ const CAMPOS_BASE: CampoBase[] = [
   'marca',
   'modelo',
   'numero_serie',
+  'numero_inventario',
   'direccion_mac',
   'direccion_ip',
   'fecha_instalacion',
@@ -535,7 +537,10 @@ export function FormularioElemento({
         {texto('marca', 'Marca')}
         {texto('modelo', 'Modelo')}
       </div>
-      {texto('numero_serie', 'N° de serie')}
+      <div className="formulario__fila">
+        {texto('numero_serie', 'N° de serie')}
+        {texto('numero_inventario', 'N° de inventario UMAG', { placeholder: 'Solo números' })}
+      </div>
       <div className="formulario__fila">
         {texto('direccion_ip', 'IP de gestión', { placeholder: '10.0.0.1' })}
         {texto('direccion_mac', 'MAC', { placeholder: 'AA:BB:CC:DD:EE:FF' })}

@@ -14,7 +14,7 @@ from app.models.enums import (
     OrigenCambio,
 )
 from app.schemas.organizacion import PlanoLeer, RecintoLeer
-from app.servicios.validacion import RE_MAC
+from app.servicios.validacion import RE_INVENTARIO, RE_MAC
 
 BASE = ConfigDict(from_attributes=True)
 
@@ -23,7 +23,17 @@ BASE = ConfigDict(from_attributes=True)
 # Entrada
 # --------------------------------------------------------------------------
 class _RedValidada(BaseModel):
-    """Formato de IP y MAC, común al alta y a la edición. Vacío = sin dato."""
+    """Formato de IP, MAC y N° de inventario, común al alta y a la edición.
+    Vacío = sin dato."""
+
+    @field_validator("numero_inventario", check_fields=False)
+    @classmethod
+    def _inventario_valido(cls, valor: str | None) -> str | None:
+        if valor is None or not valor.strip():
+            return None
+        if not RE_INVENTARIO.match(valor.strip()):
+            raise ValueError("el N° de inventario UMAG lleva solo cifras, sin letras ni signos")
+        return valor.strip()
 
     @field_validator("direccion_ip", check_fields=False)
     @classmethod
@@ -93,6 +103,7 @@ class ElementoCrear(_RedValidada):
     marca: str | None = Field(default=None, max_length=80)
     modelo: str | None = Field(default=None, max_length=120)
     numero_serie: str | None = Field(default=None, max_length=120)
+    numero_inventario: str | None = Field(default=None, description="N° de Inventario UMAG: solo cifras")
     direccion_mac: str | None = Field(default=None, max_length=17)
     direccion_ip: str | None = Field(default=None, max_length=45)
 
@@ -171,6 +182,7 @@ class ElementoActualizar(_RedValidada):
     marca: str | None = None
     modelo: str | None = None
     numero_serie: str | None = None
+    numero_inventario: str | None = None
     direccion_mac: str | None = None
     direccion_ip: str | None = None
     fecha_instalacion: dt.date | None = None
@@ -244,6 +256,7 @@ class ElementoLeer(ElementoMapa):
     piso_codigo: str
     tramo_codigo: str | None = None
     numero_serie: str | None = None
+    numero_inventario: str | None = None
     criticidad: Criticidad | None = None
     unidad_rack: int | None = None
     responsable_nombre: str | None = None

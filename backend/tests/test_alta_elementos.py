@@ -196,3 +196,30 @@ def test_proximo_codigo_avisa_si_ese_puerto_ya_esta_documentado(cliente):
 
 def test_proximo_codigo_exige_sesion(anonimo):
     assert anonimo.get(f"{API}/elementos/proximo-codigo?tipo=SW&edificio=CADI&piso=P01").status_code == 401
+
+
+def test_numero_de_inventario_umag(cliente):
+    _piso(cliente, "P46", "T1")
+    respuesta = _alta(cliente, tipo="SW", piso="P46", tramo="T1", numero_serie="FOC99", numero_inventario=" 0045912 ")
+    assert respuesta.status_code == 201, respuesta.text
+    creado = respuesta.json()
+    # Junto al número de serie, y con sus ceros iniciales.
+    assert (creado["numero_serie"], creado["numero_inventario"]) == ("FOC99", "0045912")
+    codigo = creado["codigo"]
+
+    # Solo cifras: lo demás se rechaza en el campo.
+    malo = cliente.patch(f"{API}/elementos/{codigo}", json={"numero_inventario": "INV-45912"})
+    assert malo.status_code == 422
+    assert "solo cifras" in malo.json()["detail"][0]["msg"]
+    assert _alta(cliente, tipo="SW", piso="P46", tramo="T1", numero_inventario="12 34").status_code == 422
+
+    # Se busca por él, y su cambio queda en el historial.
+    encontrados = cliente.get(f"{API}/elementos", params={"q": "0045912"}).json()["items"]
+    assert [e["codigo"] for e in encontrados] == [codigo]
+    assert cliente.patch(f"{API}/elementos/{codigo}", json={"numero_inventario": "77"}).status_code == 200
+    historial = cliente.get(f"{API}/elementos/{codigo}/historial").json()
+    cambio = next(h for h in historial if h["campo"] == "numero_inventario")
+    assert (cambio["valor_anterior"], cambio["valor_nuevo"]) == ("0045912", "77")
+    # Vacío lo borra.
+    vaciado = cliente.patch(f"{API}/elementos/{codigo}", json={"numero_inventario": ""}).json()
+    assert vaciado["numero_inventario"] is None
