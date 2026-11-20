@@ -2,6 +2,7 @@
 
 import type {
   CargaConfirmada,
+  CargaDePlanillas,
   CargaDePlanos,
   CodigoPropuesto,
   DefinicionAtributo,
@@ -10,6 +11,7 @@ import type {
   ElementoDetalle,
   Enumeraciones,
   HistorialEntrada,
+  InformeCargaPlanillas,
   LaminaPendiente,
   Novedades,
   Piso,
@@ -267,6 +269,24 @@ export const api = {
       `/edificios/${edificio}/planos?${new URLSearchParams({ confirmar })}`,
       { method: 'DELETE' },
     ),
+
+  /** Si se pueden importar planillas desde el visor, cómo deben llamarse y las ya guardadas. */
+  cargaDePlanillas: (edificio: string) =>
+    pedir<CargaDePlanillas>(`/edificios/${edificio}/carga-de-planillas`),
+
+  /**
+   * Importa el levantamiento desde sus planillas CSV. Con `ensayo`, importa y lo
+   * descarta: solo informa qué haría.
+   */
+  subirPlanillas: (edificio: string, archivos: File[], ensayo: boolean, usuario?: string) => {
+    const datos = new FormData()
+    for (const archivo of archivos) datos.append('archivos', archivo, archivo.name)
+    if (usuario) datos.append('usuario', usuario)
+    return pedir<InformeCargaPlanillas>(
+      `/edificios/${edificio}/carga-de-planillas?${new URLSearchParams({ ensayo: String(ensayo) })}`,
+      { method: 'POST', body: datos },
+    )
+  },
 
   /** Vuelve a leer con OCR las salas del plano, en segundo plano (cuando falló o faltaba el OCR). */
   leerRecintos: (edificio: string, planoId: number) =>

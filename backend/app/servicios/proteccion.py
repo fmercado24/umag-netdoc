@@ -177,14 +177,16 @@ def _ruta(request: Request) -> str:
     return request.scope["path"]
 
 
-#: Planos subidos que aún no se confirman (``servicios.carga_planos``): no son de
-#: nadie todavía, así que no se muestran.
-PREFIJO_PENDIENTES = "/media/pendientes/"
+#: Lo que se guarda en media pero no se sirve: los planos subidos que aún no se
+#: confirman (``servicios.carga_planos``), que no son de nadie todavía, y las
+#: planillas importadas desde el visor (``servicios.carga_planillas``), que traen
+#: IP, MAC y números de inventario.
+PREFIJOS_OCULTOS = ("/media/pendientes", "/media/planillas")
 
 
 async def _filtrar(request: Request, call_next) -> Response:
     ruta = _ruta(request)
-    if posixpath.normpath(ruta).startswith(PREFIJO_PENDIENTES.rstrip("/")):
+    if posixpath.normpath(ruta).startswith(PREFIJOS_OCULTOS):
         return _rechazo(404, "Not Found")
     if not es_https(request) and ruta != "/salud" and not _es_local(request):
         return _rechazo(403, "Desde otros equipos, NetDoc solo atiende por HTTPS")

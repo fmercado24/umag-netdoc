@@ -28,10 +28,12 @@ from app.core.config import DIR_PROYECTO
 from app.models import Edificio, OrigenCambio, Piso, Plano, Tramo
 from app.schemas.organizacion import (
     CargaConfirmada,
+    CargaDePlanillas,
     CargaDePlanos,
     EdificioCrear,
     EdificioDetalle,
     EdificioLeer,
+    InformeCargaPlanillas,
     LaminaPendiente,
     PisoCrear,
     PisoLeer,
@@ -41,7 +43,7 @@ from app.schemas.organizacion import (
     TramoCrear,
     TramoLeer,
 )
-from app.servicios import carga_planos, lectura_recintos
+from app.servicios import carga_planillas, carga_planos, lectura_recintos
 from app.servicios.latidos import fuentes_sin_latido
 from app.servicios.novedades import marca_del_edificio
 from app.servicios.planos import (
@@ -53,6 +55,7 @@ from app.servicios.planos import (
 )
 from app.servicios.recintos import recintos_del_piso, sincronizar_y_ubicar
 from app.servicios.teselas import asegurar_teselas
+from app.servicios.validacion import limpiar_texto
 
 router = APIRouter(prefix="/edificios", tags=["edificios"])
 
@@ -283,6 +286,88 @@ def confirmar_carga_de_planos(codigo: str, sesion: SesionBD, tareas: BackgroundT
         pisos=resultado.pisos,
         tramos=resultado.tramos,
         planos=[PlanoLeer.model_validate(p) for p in resultado.planos],
+    )
+
+
+@router.get("/{codigo}/carga-de-planillas", response_model=CargaDePlanillas)
+def estado_carga_de_planillas(codigo: str, sesion: SesionBD):
+    """Si se pueden importar planillas del levantamiento desde el visor, cómo deben
+    llamarse y las que ya tiene el edificio."""
+    edificio = obtener_edificio(sesion, codigo)
+    motivo = carga_planillas.motivo_para_no_importar(sesion, edificio)
+    return CargaDePlanillas(
+        edificio=edificio.codigo,
+        permitida=motivo is None,
+        motivo=motivo,
+        modo=carga_planillas.modo(sesion, edificio),
+        nomenclatura=carga_planillas.NOMENCLATURA,
+        ejemplos=carga_planillas.ejemplos(edificio.codigo),
+        guardadas=[
+            {"nombre": nombre, "contenido": carga_planillas.revisar(edificio.codigo, nombre).contenido}
+            for nombre in carga_planillas.guardadas(edificio.codigo)
+        ],
+    )
+
+
+#: Más que todas las planillas de un edificio grande.
+MAX_PLANILLAS = 200
+
+
+@router.post("/{codigo}/carga-de-planillas", response_model=InformeCargaPlanillas)
+def cargar_planillas(
+    codigo: str,
+    sesion: SesionBD,
+    archivos: list[UploadFile] = File(
+        ...,
+        description="Planillas CSV: <edificio>-p<piso>[-t<tramo>].csv o <edificio>-<planilla>.csv",
+    ),
+    ensayo: bool = Query(True, description="Revisa e informa qué haría, sin importar nada"),
+    usuario: str | None = Form(default=None, max_length=120),
+):
+    """Importa el levantamiento desde sus planillas CSV, como ``importar_edificio``.
+
+    Con ``ensayo`` (por omisión) importa todo y lo descarta: el informe dice qué se
+    crearía, qué se corrigió y qué quedaría sin ubicar. Sin ensayo, lo importa:
+    todo si el edificio no tenía elementos, y solo lo nuevo si ya tenía. Si algún
+    archivo se rechaza, no se importa nada.
+    """
+    edificio = obtener_edificio(sesion, codigo)
+    if len(archivos) > MAX_PLANILLAS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Se aceptan hasta {MAX_PLANILLAS} planillas a la vez"
+        )
+    recibidas = [(a.filename or "planilla", a.file.read()) for a in archivos]
+    try:
+        informe = carga_planillas.importar(
+            sesion, edificio, recibidas, ensayo=ensayo, usuario=limpiar_texto(usuario)
+        )
+    except carga_planillas.CargaNoPermitida as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (carga_planillas.PlanillasRechazadas, SystemExit) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    resultado = informe.resultado
+    return InformeCargaPlanillas(
+        ensayo=informe.ensayo,
+        modo=informe.modo,
+        aceptados=[asdict(r) for r in informe.aceptados],
+        rechazados=[asdict(r) for r in informe.rechazados],
+        guardadas=informe.guardadas,
+        motivo=informe.motivo,
+        importado=None
+        if resultado is None
+        else {
+            campo: getattr(resultado, campo)
+            for campo in ("pisos", "tramos", "equipos", "puntos", "enlaces", "vlans")
+        },
+        racks_inferidos=resultado.racks_inferidos if resultado else [],
+        racks_completados=resultado.racks_completados if resultado else [],
+        omitidas=resultado.omitidas if resultado else [],
+        puntos_existentes=resultado.puntos_existentes if resultado else 0,
+        advertencias=informe.advertencias,
+        levantamiento=informe.levantamiento,
+        ubicacion=informe.ubicacion,
+        ubicados=informe.ubicados,
+        sin_ubicar=informe.sin_ubicar,
     )
 
 

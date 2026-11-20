@@ -6,6 +6,7 @@ import { api, ErrorApi, ESTADO_CAMBIO_AJENO } from './api/cliente'
 import { armarArbol } from './arbol'
 import { AvisoMonitoreo } from './components/AvisoMonitoreo'
 import { BarraSuperior } from './components/BarraSuperior'
+import { CargaDePlanillas, conteo, plural } from './components/CargaDePlanillas'
 import { CargaDePlanos } from './components/CargaDePlanos'
 import { FormularioAlta } from './components/FormularioAlta'
 import { PanelDetalle } from './components/PanelDetalle'
@@ -23,6 +24,7 @@ import type {
   ElementoMapa,
   Enumeraciones,
   HistorialEntrada,
+  InformeCargaPlanillas,
   MonitoreoSinLatido,
   Piso,
   RespuestaMapa,
@@ -81,6 +83,7 @@ export default function App({ usuario, onSalir }: Props) {
   /** El edificio está vacío y se le pueden cargar planos desde el visor. */
   const [cargaPermitida, setCargaPermitida] = useState(false)
   const [cargandoPlanos, setCargandoPlanos] = useState(false)
+  const [cargandoPlanillas, setCargandoPlanillas] = useState(false)
   const [versionPisos, setVersionPisos] = useState(0)
   const [aviso, setAviso] = useState<string | null>(null)
   // Herramientas de monitoreo que dejaron de informar (ver `api.novedades`).
@@ -252,6 +255,7 @@ export default function App({ usuario, onSalir }: Props) {
     setAgregando(false)
     setViendoEliminados(false)
     setCargandoPlanos(false)
+    setCargandoPlanillas(false)
     setEliminado(null)
     setAviso(null)
     // Sin esto se pediría el mapa del piso anterior en el edificio nuevo.
@@ -280,6 +284,7 @@ export default function App({ usuario, onSalir }: Props) {
     limpiarSeleccion()
     setViendoEliminados(false)
     setCargandoPlanos(false)
+    setCargandoPlanillas(false)
     setAgregando(true)
   }
 
@@ -288,7 +293,38 @@ export default function App({ usuario, onSalir }: Props) {
     limpiarSeleccion()
     setAgregando(false)
     setViendoEliminados(false)
+    setCargandoPlanillas(false)
     setCargandoPlanos(true)
+  }
+
+  // --- Planillas del levantamiento ------------------------------------------------
+  const abrirCargaDePlanillas = () => {
+    limpiarSeleccion()
+    setAviso(null) // el de una importación anterior ya no corresponde
+    setAgregando(false)
+    setViendoEliminados(false)
+    setCargandoPlanos(false)
+    setCargandoPlanillas(true)
+  }
+
+  const alImportarPlanillas = (informe: InformeCargaPlanillas) => {
+    setCargandoPlanillas(false)
+    const { texto: creado } = conteo(informe)
+    let texto = creado
+      ? `Importado en ${edificioSel}: ${creado}.`
+      : `${edificioSel}: las planillas no traían nada nuevo.`
+    if (informe.ubicados)
+      texto += ` ${plural(informe.ubicados, 'elemento quedó', 'elementos quedaron')} en su sala.`
+    if (informe.sin_ubicar)
+      texto +=
+        informe.sin_ubicar === 1
+          ? ' 1 elemento está sin ubicar: aparece en la lista como «sin ubicar»; selecciónelo y ' +
+            'use «Ubicar en el plano».'
+          : ` ${informe.sin_ubicar} elementos están sin ubicar: aparecen en la lista como «sin ` +
+            'ubicar»; selecciónelos y use «Ubicar en el plano».'
+    setAviso(texto)
+    setVersionPisos((v) => v + 1) // pudo crear pisos o tramos
+    recargarMapa()
   }
 
   const alQuitarPlanos = (resultado: PlanosQuitados) => {
@@ -602,8 +638,10 @@ export default function App({ usuario, onSalir }: Props) {
           onPlanos={cargaPermitida && !sinPlanos ? abrirCargaDePlanos : undefined}
           onVerEliminados={() => {
             setAgregando(false)
+            setCargandoPlanillas(false)
             setViendoEliminados(true)
           }}
+          onPlanillas={pisos.length > 0 && !sinPlanos ? abrirCargaDePlanillas : undefined}
         />
 
         <VisorPlano
@@ -631,7 +669,15 @@ export default function App({ usuario, onSalir }: Props) {
           />
         )}
 
-        {agregando && !cargandoPlanos && (
+        {cargandoPlanillas && !cargandoPlanos && (
+          <CargaDePlanillas
+            edificio={edificioSel}
+            onCerrar={() => setCargandoPlanillas(false)}
+            onImportada={alImportarPlanillas}
+          />
+        )}
+
+        {agregando && !cargandoPlanos && !cargandoPlanillas && (
           <FormularioAlta
             edificio={edificioSel}
             pisos={pisos}
@@ -645,7 +691,7 @@ export default function App({ usuario, onSalir }: Props) {
           />
         )}
 
-        {viendoEliminados && !agregando && !cargandoPlanos && (
+        {viendoEliminados && !agregando && !cargandoPlanos && !cargandoPlanillas && (
           <PanelEliminados
             edificio={edificioSel}
             onCerrar={() => setViendoEliminados(false)}
@@ -657,7 +703,7 @@ export default function App({ usuario, onSalir }: Props) {
           />
         )}
 
-        {detalle && !agregando && !viendoEliminados && !cargandoPlanos && (
+        {detalle && !agregando && !viendoEliminados && !cargandoPlanos && !cargandoPlanillas && (
           <PanelDetalle
             key={detalle.id}
             detalle={detalle}

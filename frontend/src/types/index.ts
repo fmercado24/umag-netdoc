@@ -359,3 +359,59 @@ export interface CargaConfirmada {
   tramos: string[]
   planos: Plano[]
 }
+
+/** Una planilla del levantamiento: su nombre y qué trae. */
+export interface Planilla {
+  nombre: string
+  contenido: string | null
+}
+
+export interface CargaDePlanillas {
+  edificio: string
+  /** Cuando el edificio tiene sus planos, con las salas ya leídas. */
+  permitida: boolean
+  motivo: string | null
+  /** «nuevo» si el edificio no tiene elementos; «agregar» si ya tiene. */
+  modo: 'nuevo' | 'agregar'
+  nomenclatura: string
+  ejemplos: Planilla[]
+  /** Las que ya tiene el edificio: se usan junto con las nuevas. */
+  guardadas: Planilla[]
+}
+
+/** Lo que dice el nombre de un archivo subido. */
+export interface RevisionPlanilla {
+  archivo: string
+  nombre: string | null
+  contenido: string | null
+  error: string | null
+  sugerencia: string | null
+}
+
+export interface InformeCargaPlanillas {
+  ensayo: boolean
+  modo: 'nuevo' | 'agregar'
+  aceptados: RevisionPlanilla[]
+  rechazados: RevisionPlanilla[]
+  /** Planillas ya guardadas que se usaron junto con las que llegaron. */
+  guardadas: string[]
+  /** Por qué todavía no se puede importar de verdad (solo en el ensayo). */
+  motivo: string | null
+  importado: {
+    pisos: number
+    tramos: number
+    equipos: number
+    puntos: number
+    enlaces: number
+    vlans: number
+  } | null
+  racks_inferidos: string[]
+  racks_completados: string[]
+  omitidas: string[]
+  puntos_existentes: number
+  advertencias: string[]
+  levantamiento: string | null
+  ubicacion: string[]
+  ubicados: number
+  sin_ubicar: number
+}

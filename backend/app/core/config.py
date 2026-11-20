@@ -130,6 +130,13 @@ class Configuracion(BaseSettings):
         return self.dir_media / "pendientes"
 
     @property
+    def dir_planillas(self) -> Path:
+        """Planillas del levantamiento importadas desde el visor
+        (``app.servicios.carga_planillas``). Se respaldan con la base y no se
+        sirven en ``/media``: traen IP, MAC y números de inventario."""
+        return self.dir_media / "planillas"
+
+    @property
     def es_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
 

@@ -39,6 +39,16 @@ solo las salas de cada plano** con OCR, con el código que trae el plano (secci�
 toma alrededor de un minuto por plano y, mientras tanto, el visor lo avisa sobre el
 plano. Después, la sala de cada elemento, buscada por su nombre o su número, lo ubica en ella.
 
+Con los planos cargados y sus salas ya leídas, **Importar planillas**, en el panel lateral,
+reemplaza los pasos 5 y 6: se eligen los CSV del levantamiento (sección 3), con los nombres
+de la nomenclatura, y el visor ensaya la importación sin guardar nada. El informe dice qué
+se crearía, qué valores mal escritos se corrigieron y qué quedaría sin ubicar; un archivo
+mal nombrado se rechaza diciendo cómo debe llamarse. **Importar** lo hace de verdad, y cada
+elemento queda en su sala. Si el edificio ya tiene elementos, se suma solo lo nuevo, como
+con `--agregar` (sección 11). Las planillas importadas quedan guardadas en el servidor
+(`/var/lib/netdoc/media/planillas/<CÓDIGO>/`, que entra en los respaldos y no se publica) y
+se usan junto con las que se suban después.
+
 ---
 
 ## 0. Antes de empezar
@@ -482,7 +492,8 @@ informe y corrija las planillas hasta quedar conforme. Mensajes frecuentes:
 ```
 
 Si el edificio ya tiene elementos, el comando se detiene sin tocar nada (ver
-sección 11 para sumar tramos después). **En el servidor**, copie los CSV con `sudo` a
+sección 11 para sumar tramos después). **En el servidor**, lo más simple es
+**Importar planillas** desde el visor (ver el Resumen). Por la terminal, copie los CSV con `sudo` a
 `/opt/netdoc/data/ing/` y ejecute `sudo netdoc importar`: importa los edificios que aún no
 tienen elementos, ubica cada elemento en su sala y reinicia el servicio. La próxima
 actualización borra esa carpeta, porque no está en el repositorio, pero ya no hace falta:
@@ -588,7 +599,7 @@ Paso a paso completo en [manual-monitoreo.md](manual-monitoreo.md).
 
 | Situación | Qué hacer |
 |---|---|
-| Se levantó un tramo más (o más puntos de datos) | Deje la planilla nueva en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo, ya ubicado en su recinto: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila y, si la planilla es de otro piso, pasa a ese piso con el código que le corresponde |
+| Se levantó un tramo más (o más puntos de datos) | En el visor, **Importar planillas** con la planilla nueva: revisa, informa y, al confirmar, suma solo lo nuevo. Por la terminal: deje la planilla en `data/ing/` y ejecute `importar_edificio ING --agregar` (primero con `--solo-advertencias` para ensayar). Suma solo lo nuevo, ya ubicado en su recinto: no toca lo importado, sus posiciones ni su historial. Un rack que era inferido se completa con su fila y, si la planilla es de otro piso, pasa a ese piso con el código que le corresponde |
 | Un dato está mal | Corríjalo en el visor con **Editar**: queda en el historial. No reimporte |
 | Se hizo otra visita a terreno | Agregue su fila a `ing-levantamiento.csv` (sección 3.5) y ejecute `./iniciar.sh` |
 | Se instaló algo nuevo: un switch, puntos de datos, un AP… | En el visor, **+ Agregar elemento**: elija el tipo, el piso y el tramo; el código lo asigna el sistema. Para varios puntos de datos seguidos, **Agregar y seguir** ([detalle](../README.md#agregar-un-elemento)) |

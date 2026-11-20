@@ -497,11 +497,19 @@ class Territorio:
 # --------------------------------------------------------------------------
 class Importador:
     def __init__(
-        self, sesion: Session, dir_datos: Path, codigo_edificio: str, *, agregar: bool = False
+        self,
+        sesion: Session,
+        dir_datos: Path,
+        codigo_edificio: str,
+        *,
+        agregar: bool = False,
+        usuario: str = "importacion",
     ) -> None:
         self.sesion = sesion
         self.dir_datos = dir_datos
         self.resultado = Resultado()
+        #: Quién importa, para el historial: desde el visor, la persona.
+        self.usuario = usuario
 
         codigo_edificio = codigo_edificio.upper()
         self.edificio = sesion.scalar(select(Edificio).where(Edificio.codigo == codigo_edificio))
@@ -710,7 +718,7 @@ class Importador:
             self.sesion,
             elemento,
             origen=OrigenCambio.IMPORTACION,
-            usuario="importacion",
+            usuario=self.usuario,
             comentario=f"Importado desde las planillas del levantamiento {self.edificio.codigo}",
         )
         self.creados.append(elemento)
@@ -801,7 +809,7 @@ class Importador:
             rack,
             cambios,
             origen=OrigenCambio.IMPORTACION,
-            usuario="importacion",
+            usuario=self.usuario,
             comentario=f"Ficha del rack completada con {archivo}",
         )
         self.sesion.flush()
@@ -1272,7 +1280,7 @@ class Importador:
                     ),
                 },
                 origen=OrigenCambio.IMPORTACION,
-                usuario="importacion",
+                usuario=self.usuario,
                 comentario="Su rack está en otro piso",
             )
 

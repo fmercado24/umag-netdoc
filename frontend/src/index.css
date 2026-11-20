@@ -1584,6 +1584,46 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* --- Importar planillas: el informe del ensayo ---------------------------- */
+/* La nomenclatura, plegable: un subtítulo que se abre y se cierra. */
+.plegable > summary.subtitulo {
+  display: list-item;
+  cursor: pointer;
+}
+
+.plegable > summary.subtitulo:hover {
+  color: var(--tinta);
+}
+
+.informe-planillas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo-suave);
+  font-size: 13px;
+}
+
+.informe-planillas p {
+  margin: 0;
+}
+
+.informe-planillas__titulo {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+.informe-planillas__lista {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 /* --- Responsivo ---------------------------------------------------------- */
 @media (max-width: 1100px) {
   .cuerpo,

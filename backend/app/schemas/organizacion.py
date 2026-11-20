@@ -223,3 +223,73 @@ class CargaConfirmada(BaseModel):
     pisos: list[str]
     tramos: list[str]
     planos: list[PlanoLeer]
+
+
+class Planilla(BaseModel):
+    """Una planilla del levantamiento: su nombre y qué trae."""
+
+    nombre: str
+    contenido: str | None = None
+
+
+class CargaDePlanillas(BaseModel):
+    """Si se pueden importar planillas desde el visor y cómo deben llamarse."""
+
+    edificio: str
+    #: Cuando el edificio tiene sus planos, con las salas ya leídas.
+    permitida: bool
+    #: Por qué no, si no se puede.
+    motivo: str | None = None
+    #: «nuevo» si el edificio no tiene elementos; «agregar» si ya tiene.
+    modo: str
+    nomenclatura: str
+    ejemplos: list[Planilla]
+    #: Las planillas que ya tiene el edificio y que se usan junto con las nuevas.
+    guardadas: list[Planilla] = []
+
+
+class RevisionPlanilla(BaseModel):
+    """Lo que dice el nombre de un archivo subido."""
+
+    archivo: str
+    #: Nombre con que se importa; nulo si se rechaza.
+    nombre: str | None = None
+    contenido: str | None = None
+    #: Por qué se rechaza; nulo si se acepta.
+    error: str | None = None
+    #: El nombre que debería tener, si se pudo deducir del original.
+    sugerencia: str | None = None
+
+
+class ConteoImportado(BaseModel):
+    pisos: int
+    tramos: int
+    equipos: int
+    puntos: int
+    enlaces: int
+    vlans: int
+
+
+class InformeCargaPlanillas(BaseModel):
+    """Lo que hizo, o haría en el ensayo, la importación de las planillas."""
+
+    ensayo: bool
+    modo: str
+    aceptados: list[RevisionPlanilla]
+    rechazados: list[RevisionPlanilla]
+    #: Planillas ya guardadas que se usaron junto con las que llegaron.
+    guardadas: list[str] = []
+    #: Por qué todavía no se puede importar de verdad (solo en el ensayo).
+    motivo: str | None = None
+    #: Lo creado; nulo si no llegó ninguna planilla aceptada.
+    importado: ConteoImportado | None = None
+    racks_inferidos: list[str] = []
+    racks_completados: list[str] = []
+    omitidas: list[str] = []
+    puntos_existentes: int = 0
+    advertencias: list[str] = []
+    levantamiento: str | None = None
+    #: El informe de ubicación en las salas, como en la terminal.
+    ubicacion: list[str] = []
+    ubicados: int = 0
+    sin_ubicar: int = 0

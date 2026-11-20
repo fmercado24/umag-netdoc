@@ -343,6 +343,37 @@ Lo que ya tiene posición nunca se mueve solo. Detalle en
 [docs/modelo-datos.md](docs/modelo-datos.md#ubicación-por-recinto) y paso a
 paso en la [guía, sección 4.1](docs/guia-nuevo-edificio.md#41-recintos-los-códigos-de-sala-de-cada-lámina).
 
+## Importar las planillas del levantamiento
+
+Con los planos del edificio cargados y sus salas ya leídas, el panel lateral ofrece
+**Importar planillas**. Se eligen los CSV que salen de la
+[plantilla de levantamiento](data/_plantilla/README.md), una hoja por archivo, y **el
+nombre de cada uno dice qué trae**: `ing-p01-t1.csv` es el equipamiento del tramo 1 del
+piso 1, `ing-p02.csv` el del piso 2 completo, y `ing-puntos-de-datos.csv`,
+`ing-vlans.csv`, `ing-laminas.csv`, `ing-levantamiento.csv` e `ing-recintos.csv` las demás
+([guía, sección 3](docs/guia-nuevo-edificio.md#3-planillas-del-levantamiento)).
+
+- **Primero se revisa.** Al elegirlos, el visor ensaya la importación completa y la
+  descarta: el informe dice cuántos elementos se crearían, cuántos quedarían en su sala y
+  cuántos sin ubicar, y qué valores mal escritos se corrigieron («Swich» → switch), para
+  arreglarlos en la planilla de origen. Se pueden sumar o quitar archivos y se vuelve a
+  revisar.
+- **Lo mal nombrado se rechaza**, con el motivo: no sigue la nomenclatura, es de otro
+  edificio, es un libro de Excel o está vacío. Si el nombre se puede deducir
+  («ing p1 t2.csv», «Puntos de datos.csv»), dice cómo debe llamarse. Lo rechazado no se
+  importa.
+- **Importar** lo hace de verdad: todo, si el edificio no tenía elementos; si ya tenía,
+  solo lo nuevo, como `importar_edificio --agregar`. Un tramo ya importado se omite y no se
+  toca lo ubicado ni lo corregido en el visor. Lo que quedó sin ubicar se ubica en el plano.
+- **Las planillas quedan guardadas** en `media/planillas/<CÓDIGO>/` (en el servidor,
+  `/var/lib/netdoc/media/planillas/`), que entra en los respaldos y no se publica en
+  `/media`, porque traen IP, MAC e inventario. Se usan junto con las que se suban después:
+  la planilla de un tramo nuevo encuentra la leyenda de VLANs ya subida. Si se reemplaza
+  una, la anterior queda en `anteriores/`.
+
+Reemplazar todo lo importado (`--recargar`) sigue siendo solo de la terminal, porque borra
+las posiciones y el historial.
+
 ## Agregar un elemento
 
 Para lo que se instala después del levantamiento (un switch nuevo, puntos de datos,
@@ -498,6 +529,8 @@ correr `migrar`. La prueba `test_migraciones` falla si falta la migración.
 | `GET` | `/api/v1/edificios/{codigo}/carga-de-planos?archivo=` | Si el edificio está vacío y se le pueden cargar planos, cómo deben llamarse y los que esperan; con `archivo`, revisa esos nombres |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos` | Sube un plano a la espera, revisado (nombre, SVG, tamaño). `DELETE …/carga-de-planos/{archivo}` lo quita |
 | `POST` | `/api/v1/edificios/{codigo}/carga-de-planos/confirmar` | Crea los pisos y tramos que nombran los planos en espera y los deja vigentes |
+| `GET` | `/api/v1/edificios/{codigo}/carga-de-planillas` | Si se pueden importar planillas desde el visor (planos cargados y salas leídas), cómo deben llamarse y las ya guardadas |
+| `POST` | `/api/v1/edificios/{codigo}/carga-de-planillas?ensayo=` | Importa las planillas CSV (`archivos`) como `importar_edificio`: todo si el edificio no tiene elementos, solo lo nuevo si ya tiene. Con `ensayo=true` (por omisión) importa y lo descarta, e informa qué haría. Un archivo mal nombrado se rechaza con el nombre que corresponde; sin ensayo, si hay alguno, no se importa nada |
 | `DELETE` | `/api/v1/edificios/{codigo}/planos?confirmar=CODIGO` | Quita los planos, tramos y pisos de un edificio sin elementos; `confirmar` es su código |
 | `GET` | `/api/v1/elementos/mapa?edificio=&piso=&tramo=` | Plano + elementos del piso o del tramo, en una llamada |
 | `GET` | `/api/v1/elementos` | Listado con filtros por tipo, estado, rack y búsqueda libre |
