@@ -12,6 +12,7 @@ instituciones multi-edificio: caso UMAG"*.
 
 | Guía | Para qué |
 |---|---|
+| [Manual de usuario](docs/Manual_Usuario_NetDoc_UMAG.docx) | Todo en un documento de Word para imprimir: instalación en el servidor, cuentas, uso del visor, incorporación de edificios, formato de las planillas, mantención, respaldos, monitoreo y problemas frecuentes |
 | [Incorporar un edificio](docs/guia-nuevo-edificio.md) | Paso a paso desde el levantamiento en terreno hasta ver el edificio en el visor: planillas, láminas, importación, ubicación de racks y puntos de datos, completar fichas y sumar tramos después |
 | [Manual de monitoreo](docs/manual-monitoreo.md) | Instalar y operar Prometheus, Alertmanager y Grafana, y conectar Zabbix, para que el estado de los equipos se actualice solo |
 | [Plantillas del levantamiento](data/_plantilla/) | Planillas de ejemplo para copiar en `data/<código>/` |
@@ -47,7 +48,7 @@ umag-netdoc/
 │   │   ├── api/v1/      Routers HTTP
 │   │   └── scripts/     Migraciones, catálogo, importación de edificios, láminas, recintos, fotos, sincronización
 │   ├── alembic/         Migraciones versionadas
-│   └── tests/           737 pruebas (pytest)
+│   └── tests/           773 pruebas (pytest)
 ├── frontend/src/
 │   ├── api/             Cliente HTTP tipado
 │   ├── components/      Barra, panel lateral, visor de plano, ficha
@@ -161,7 +162,7 @@ cd backend
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements.lock
 
-# Esquema (migraciones de Alembic) + catálogo (19 edificios, 14 tipos)
+# Esquema (migraciones de Alembic) + catálogo (19 edificios, 13 tipos)
 .venv/bin/python -m app.scripts.migrar
 .venv/bin/python -m app.scripts.cargar_catalogo
 
